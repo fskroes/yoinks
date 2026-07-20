@@ -59,6 +59,12 @@ click the theme control in the footer to cycle through `auto`, `light`, and
   no Python required. If you already have yt-dlp installed, it uses yours.
 - ffmpeg (needed for merging high-res streams and mp3 extraction) is found
   on your PATH, with `ffmpeg-static` as a bundled fallback.
+- The `transcript · txt` option downloads the audio, transcribes it locally
+  with [whisper.cpp](https://github.com/ggerganov/whisper.cpp)
+  (`brew install whisper-cpp`), and saves a `.txt` to `~/Downloads` — the
+  audio itself is discarded. On first use the ggml-base model (~142MB) is
+  downloaded to `~/.yoinks/models`, unless one already exists in
+  `~/.cache/whisper` or `$YOINKS_WHISPER_MODEL` points at another model.
 - The UI is [Ink](https://github.com/vadimdemedes/ink) — React for the
   terminal.
 
