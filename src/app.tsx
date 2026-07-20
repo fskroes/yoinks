@@ -35,8 +35,12 @@ const YOINK_BUTTON = 'yoink'
 const DONE_LABEL = '↵ yoink another'
 const TAGLINE = 'yoink any video. paste. yoink. done.'
 
+const AUDIO_GLYPH = '♪ '
+const TRANSCRIPT_GLYPH = '✎ '
+const VIDEO_GLYPH = '▶ '
+
 const choiceLabel = (choice: DownloadChoice) =>
-  `${choice.kind === 'audio' ? '♪ ' : choice.kind === 'transcript' ? '✎ ' : '▶ '}${choice.label}`
+  `${choice.kind === 'audio' ? AUDIO_GLYPH : choice.kind === 'transcript' ? TRANSCRIPT_GLYPH : VIDEO_GLYPH}${choice.label}`
 
 function ChoiceIndicator({isSelected}: IndicatorProps) {
   const theme = useTheme()
@@ -47,12 +51,23 @@ function ChoiceIndicator({isSelected}: IndicatorProps) {
   )
 }
 
-function ChoiceItem({isSelected, label}: ItemProps) {
+// SelectInput spreads the whole item onto its item component, so we can carry
+// a `rule` flag through to draw the video/artifact divider.
+function ChoiceItem({isSelected, label, rule}: ItemProps & {rule?: boolean}) {
   const theme = useTheme()
-  return (
+  const item = (
     <Text color={theme.primary} bold={isSelected}>
       {label}
     </Text>
+  )
+  if (!rule) return item
+  // subtle rule below the last video artifact, so audio and transcript read as
+  // peer artifacts rather than more video resolutions
+  return (
+    <Box flexDirection="column">
+      {item}
+      <Text color={theme.gray} dimColor={theme.dimSecondary}>{'┈'.repeat(28)}</Text>
+    </Box>
   )
 }
 
@@ -431,7 +446,7 @@ function AppContent({
               {info?.uploader ? ` · ${info.uploader}` : ''}
             </Text>
           </Box>
-          <Panel title="Download" width={38}>
+          <Panel title="Save as" width={38}>
             <SelectInput
               indicatorComponent={ChoiceIndicator}
               itemComponent={ChoiceItem}
@@ -439,6 +454,8 @@ function AppContent({
                 key: String(index),
                 label: choiceLabel(choice),
                 value: index,
+                // the divider sits after the last video, before the audio/transcript group
+                rule: choice.kind === 'video' && choices[index + 1]?.kind !== 'video',
               }))}
               onSelect={handlePick}
               onHighlight={item => (highlightRef.current = item.value)}
