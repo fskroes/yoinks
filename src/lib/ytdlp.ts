@@ -134,7 +134,7 @@ export async function probe(ytdlp: string, url: string, signal?: AbortSignal): P
 
 export type DownloadChoice = {
   label: string
-  kind: 'video' | 'audio'
+  kind: 'video' | 'audio' | 'transcript'
   args: string[]
 }
 
@@ -182,6 +182,13 @@ export function buildChoices(info: VideoInfo): DownloadChoice[] {
     kind: 'audio',
     label: `audio only · mp3${audioSizeLabel}`,
     args: ['-f', 'ba/b', '-x', '--audio-format', 'mp3', '--audio-quality', '0'],
+  })
+
+  choices.push({
+    kind: 'transcript',
+    // audio is downloaded to a temp dir and transcribed locally with whisper.cpp
+    label: 'transcript · txt',
+    args: ['-f', 'ba/b'],
   })
 
   return choices

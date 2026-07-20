@@ -1,4 +1,5 @@
 import React, {useCallback, useEffect, useRef, useState} from 'react'
+import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import {Box, Text, useApp, useInput, useStdout} from 'ink'
@@ -27,13 +28,15 @@ import {
   type DownloadProgress,
   type VideoInfo,
 } from './lib/ytdlp.js'
+import {ensureWhisperModel, findWhisper, transcribe} from './lib/transcribe.js'
 
 const OUT_DIR = path.join(os.homedir(), 'Downloads')
 const YOINK_BUTTON = 'yoink'
 const DONE_LABEL = '↵ yoink another'
 const TAGLINE = 'yoink any video. paste. yoink. done.'
 
-const choiceLabel = (choice: DownloadChoice) => `${choice.kind === 'audio' ? '♪ ' : '▶ '}${choice.label}`
+const choiceLabel = (choice: DownloadChoice) =>
+  `${choice.kind === 'audio' ? '♪ ' : choice.kind === 'transcript' ? '✎ ' : '▶ '}${choice.label}`
 
 function ChoiceIndicator({isSelected}: IndicatorProps) {
   const theme = useTheme()
@@ -96,6 +99,7 @@ type Phase =
       processing: boolean
       refreshing?: boolean
     }
+  | {name: 'transcribing'; status: string; percent?: number}
   | {name: 'done'; filepath: string}
   | {name: 'error'; message: string}
 
@@ -115,6 +119,10 @@ const HINTS: Record<Phase['name'], Array<[string, string]>> = {
     ['^c', 'quit'],
   ],
   downloading: [
+    ['esc', 'cancel'],
+    ['^c', 'quit'],
+  ],
+  transcribing: [
     ['esc', 'cancel'],
     ['^c', 'quit'],
   ],
@@ -226,7 +234,8 @@ function AppContent({
         return
       }
       if (key.escape && (phase.name === 'picking' || phase.name === 'error' || phase.name === 'done')) resetToInput()
-      if (key.escape && (phase.name === 'probing' || phase.name === 'downloading')) cancelRun()
+      if (key.escape && (phase.name === 'probing' || phase.name === 'downloading' || phase.name === 'transcribing'))
+        cancelRun()
       if (key.return && (phase.name === 'error' || phase.name === 'done')) resetToInput()
     },
     {isActive: Boolean(process.stdin.isTTY)},
@@ -257,9 +266,14 @@ function AppContent({
         onProcessing: () =>
           setPhase(prev => (prev.name === 'downloading' ? {...prev, processing: true} : prev)),
       }
+      // transcripts download the audio to a temp dir — only the .txt lands in Downloads
+      const transcript = choice.kind === 'transcript'
+      const tmpDir = transcript ? await fs.mkdtemp(path.join(os.tmpdir(), 'yoinks-transcribe-')) : undefined
       try {
+        // fail fast on a missing whisper install, before downloading anything
+        const whisper = transcript ? await findWhisper() : undefined
         const ffmpegLocation = await findFfmpeg()
-        const base = {ytdlp: ytdlpRef.current, ffmpegLocation, url, choice, outDir: OUT_DIR}
+        const base = {ytdlp: ytdlpRef.current, ffmpegLocation, url, choice, outDir: tmpDir ?? OUT_DIR}
         let filepath: string
         try {
           // reuse the probe's metadata — starts immediately instead of re-extracting
@@ -272,12 +286,31 @@ function AppContent({
           )
           filepath = await download(base, handlers, controller.signal)
         }
+        if (whisper) {
+          const model = await ensureWhisperModel(
+            status => setPhase({name: 'transcribing', status}),
+            controller.signal,
+          )
+          if (controller.signal.aborted) return
+          setPhase({name: 'transcribing', status: 'transcribing…', percent: 0})
+          const text = await transcribe(
+            {mediaPath: filepath, ffmpeg: ffmpegLocation, whisper, model},
+            percent => setPhase(prev => (prev.name === 'transcribing' ? {...prev, percent} : prev)),
+            controller.signal,
+          )
+          if (!text) throw new Error('No speech found in this video.')
+          filepath = path.join(OUT_DIR, `${path.parse(filepath).name}.txt`)
+          const header = [info?.title, url].filter(Boolean).join('\n')
+          await fs.writeFile(filepath, `${header}\n\n${text}\n`)
+        }
         onOutcome({filepath})
         setHistory(addToHistory(url))
         setPhase({name: 'done', filepath})
       } catch (error) {
         if (controller.signal.aborted) return
         setPhase({name: 'error', message: error instanceof Error ? error.message : String(error)})
+      } finally {
+        if (tmpDir) void fs.rm(tmpDir, {recursive: true, force: true})
       }
     })()
   }
@@ -293,7 +326,10 @@ function AppContent({
   const hintAction = (key: string): (() => void) | undefined => {
     if (key === '^c') return () => exit()
     if (key === '^t') return cycleTheme
-    if (key === 'esc') return phase.name === 'probing' || phase.name === 'downloading' ? cancelRun : resetToInput
+    if (key === 'esc')
+      return phase.name === 'probing' || phase.name === 'downloading' || phase.name === 'transcribing'
+        ? cancelRun
+        : resetToInput
     if (key === '↵') {
       if (phase.name === 'input') return () => handleUrlSubmit(urlInput)
       if (phase.name === 'picking') return () => handlePick({value: highlightRef.current})
@@ -326,7 +362,7 @@ function AppContent({
       if (taglineRow > 3 && y - 1 >= taglineRow - 4 && y - 1 <= taglineRow - 2) {
         const span = frameRowSpan(y - 1)
         if (span && x >= span[0] - 1 && x <= span[1] + 1) {
-          if (phase.name === 'probing' || phase.name === 'downloading') cancelRun()
+          if (phase.name === 'probing' || phase.name === 'downloading' || phase.name === 'transcribing') cancelRun()
           else if (phase.name !== 'input') resetToInput()
           return
         }
@@ -459,6 +495,35 @@ function AppContent({
                   {phase.refreshing ? ' link expired — grabbing a fresh one…' : ' starting download…'}
                 </Text>
               </Text>
+            </>
+          )}
+        </Box>
+      )}
+
+      {phase.name === 'transcribing' && (
+        <Box flexDirection="column" alignItems="center">
+          <Text color={theme.gray} dimColor={theme.dimSecondary}>
+            {info?.title ? `${truncate(info.title, 42)} · ` : ''}
+            transcript · txt
+          </Text>
+          <Gap />
+          {/* same three-row shape as downloading — bar, gap, meta — so the layout never jumps */}
+          {phase.percent === undefined ? (
+            <>
+              <ProgressBar percent={0} />
+              <Gap />
+              <Text>
+                <Text color={theme.primary}>
+                  <Spinner type="dots" />
+                </Text>
+                <Text color={theme.gray} dimColor={theme.dimSecondary}> {phase.status}</Text>
+              </Text>
+            </>
+          ) : (
+            <>
+              <ProgressBar percent={phase.percent} />
+              <Gap />
+              <Text color={theme.gray} dimColor={theme.dimSecondary}>transcribing with local whisper…</Text>
             </>
           )}
         </Box>
