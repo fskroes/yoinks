@@ -1,0 +1,27 @@
+# Yoinks states facts about a source, never conclusions about it
+
+Yoinks can tell a person what is in a source and where, but it never scores, ranks, or
+recommends: no worth-watching verdict, no "skip this one", no confidence rating on the source
+itself. The person decides; Yoinks hands them what they need to decide with and stops.
+
+This is a deliberate reversal, not an omission. A verdict-shaped output was proposed during
+the 2026-07-25 design session — along with a regret metric that would have measured how often
+the verdict made you skip something good — and the maintainer killed it in one sentence: *"I
+will decide self if I find it valueable to watch the video or not."* Everything factual
+survived that cut (timestamped claims, verbatim quotes, expandable depth, detected sponsor
+reads); everything evaluative died with it.
+
+## Consequences
+
+The constraint is load-bearing for two later decisions and is easy to violate by accident:
+
+- The no-question path returns a **map** — the shape of a source, its segment boundaries and
+  its skippable regions — rather than an account of what the source says. Structure cannot
+  express an opinion; prose about content always can, and drifts into one.
+- "Prefer verbatim over paraphrase" exists for the same reason. A summary flattens a weak
+  thinker and a strong one into the same competent prose, which is a judgment about the
+  source smuggled in as a writing style.
+
+Every comparable product ships a score, so expect this to be re-proposed by well-meaning
+contributors. The answer is here rather than in a session log so it does not have to be
+re-argued from scratch.
