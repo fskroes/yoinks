@@ -9,14 +9,21 @@ Uses the vocabulary in `CONTEXT.md`: **source URL**, **artifact**, **transcript*
 Supersedes the 2026-07-25 corpus/diff thesis, which was tested and largely falsified. See
 [What changed and why](#what-changed-and-why).
 
-**Status: frozen, 2026-07-29. Not closed — closed would mean settled, and the load-bearing
-assumption is one observation.** Frozen means no further revision from the armchair. This
-document has already been rewritten twice: once from evidence (Step 2), once from grilling
-(Step 3, same day, no new evidence in between). A third pass without new evidence would be
-fitting theory to theory. The previous thesis died the right way, contradicted by reality
-inside 48 hours; this one gets the same treatment or none. Everything durable has been drained
-out of it — vocabulary into `CONTEXT.md`, decisions into `docs/adr/`, the gate into
-[Measure](#measure). Only evidence reopens it.
+**Status: frozen 2026-07-29, reopened at Constraint 5 on 2026-07-31 by evidence.** Frozen means
+no further revision from the armchair. This document had already been rewritten twice: once
+from evidence (Step 2), once from grilling (Step 3, same day, no new evidence in between). A
+third pass without new evidence would have been fitting theory to theory. The previous thesis
+died the right way, contradicted by reality inside 48 hours; this one gets the same treatment
+or none. Everything durable has been drained out of it — vocabulary into `CONTEXT.md`,
+decisions into `docs/adr/`, the gate into [Measure](#measure). Only evidence reopens it.
+
+**What reopened it.** `docs/validation/step-5-title-falsifier.md` ran the title-alone control
+that Step 4 could not, and it fired: a bare title produced the relate-to-what-I-track question,
+and a title that enumerates topics produced a request for one *part* — the narrowing the map
+exists to do, without a map. Constraint 5 and [What this makes possible](#what-this-makes-possible)
+are amended below. Nothing else in this document is touched, and the amendment narrows the
+claim rather than replacing it: the armchair rule still holds for everything the evidence did
+not reach.
 
 ## The job
 
@@ -64,12 +71,28 @@ URL field. That is input convenience — it holds nothing about what a source sa
 inference. The line to hold is content, not state. Logging *questions asked* would cross it,
 and would rebuild the corpus this thesis exists to have killed.
 
-**5. Most people arrive without a question, and the answer to that is a map.**
+**5. Most people arrive without a question. Whether a map is the answer is now the open
+question, not the answer.**
 An earlier draft called the questionless arrival degenerate. The evidence says it is the
 majority: two of three. Handing that majority an unasked-for account of the content is
-summarisation with better manners, and it is the session the evidence rates worst. Hand back
-the *shape* of the source instead — segments, times, the parts worth skipping — so the person
-can see what is in there and ask for the part they want.
+summarisation with better manners, and it is the session the evidence rates worst. That much
+holds. The proposed answer was to hand back the *shape* of the source — segments, times, the
+parts worth skipping — so the person could see what is in there and ask for the part they want.
+
+**Step 5 took the "so" out of that sentence.** The title alone already does the work on sources
+whose titles carry subject matter: a five-word title produced a question, and a title listing
+five topics produced a request for one of them. Meanwhile Step 4 put a real map in front of two
+questionless arrivals and both came back **"overall"** — no narrowing at all. So the constraint
+now reads:
+
+> Where the title carries subject matter, the map has no established job — the title is doing
+> it. Where the title carries none, the map is the only candidate, and it is precisely there
+> that Step 4 measured it failing to narrow.
+
+Branch 5 is therefore reduced to one testable claim: **does a map beat a title, on sources
+whose titles carry nothing?** Neither run has yet produced a case where it does. Until one
+exists, the map is not the answer to the questionless arrival — it is the untested hypothesis
+about it.
 
 ## What this makes possible
 
@@ -85,9 +108,16 @@ into summarisation, and so a weak thinker and a strong one are not flattened int
 competent prose. A map is also the cheapest thing here: it is arithmetic over a timed
 transcript, so it can render immediately while an answer waits on a model.
 
-Its real work is provoking the question. Someone looking at where a source changes subject
-knows which part they want, and asks for it — which turns the questionless majority into the
-case above rather than serving them a worse chat application.
+Its claimed work was provoking the question: someone looking at where a source changes subject
+knows which part they want and asks for it, turning the questionless majority into the case
+above rather than serving them a worse chat application. **That mechanism has been measured
+twice and has not operated.** Step 4, two map readings, both "overall". Step 5, four titles and
+no map, one clean part request. A topic-listing title is already a low-resolution map, and on
+the record so far it narrows better than the built one.
+
+What survives is the mechanical half, which is solid: a usable map *can* be built from auto-subs
+(Step 4, nine sources), and the skip layer scores 6/6 on sponsor reads and outros where they
+exist. That is a working instrument. It is not evidence that anyone wants it.
 
 **Skip patterns, within a single source.**
 Sponsor reads, subscribe interruptions, and outros are structurally detectable inside one
@@ -129,7 +159,24 @@ clipboard. The model was always going to be somebody else's.
 
 **How it gets measured.** Not in the product: nothing may log what was asked (see Constraint
 4). By repeating the Step 2 diary method with **people who are not the maintainer** — three of
-them, a week, the same one-line log.
+them, a week, one line per source.
+
+The log is four columns, not one. Step 4 designed three on the assumption that the title was
+inert; Step 5 showed it is not, so column 1 is load-bearing and column 4 exists to separate the
+map's contribution from the title's:
+
+1. **Here is the title. What do you want to ask?**
+2. **Here is the map. Does that change?**
+3. **Which part do you want?**
+4. **Did the map add anything the title had not already given you?**
+
+Column 1 must be answered and written down *before* the map is shown — that ordering is the
+whole control, and Step 4 failed for want of it. Record the title verbatim alongside the
+answer; whether it enumerates topics is the variable Step 5 says predicts the question.
+
+The map for column 2 comes from `npm run prototype:map -- <url> --plain`. The prototype is
+adequate and should not be improved first — its known defects (45-second block granularity,
+unexploited `>>` speaker markers) are not why either run came out as it did.
 
 This is the gate, and it is not optional. Every document in this repository carries the same
 `n=1` caveat, and the load-bearing assumption is down to a single observation. A fourth round
@@ -147,17 +194,30 @@ That may not be enough of a difference. It is the open question this thesis does
 
 ## Evidence
 
-Validated 2026-07-27 → 2026-07-29 by the maintainer, on their own use. Full records:
+Validated 2026-07-27 → 2026-07-31 by the maintainer, on their own use. Full records:
 
 - `docs/validation/step-1-cold-read.md` — the diff is interesting when it applies (3/3 pass,
   with discounts recorded)
 - `docs/validation/step-2-cold-start.md` — the corpus premise fails; the extraction shape
   surfaced instead
+- `docs/validation/step-3-grilling.md` — the thesis stress-tested against itself, no new
+  evidence
+- `docs/validation/step-4-map-prototype.md` — a map *can* be built (9 sources, skip patterns
+  6/6); the mechanism it claims did not operate, 2 of 2, and the title-alone control went unrun
+- `docs/validation/step-5-title-falsifier.md` — the control, run: the title does the work the
+  map claimed. Reopened Constraint 5
 
 n=3 sources over three days, one person, non-random sample, and the person knew they were
 being measured. Two of the three sessions were answered by an assistant holding the full
 transcript in context — that is evidence the *shape* is wanted, not evidence it can be built
 well or cheaply. The `n=1` caveat from `SESSION.md` still holds and is arguably worse here.
+
+Steps 4 and 5 add six more sources — two map readings and four titles — and do not relieve
+that caveat in the slightest. Same person, the author of the document being tested, who knew
+the hypothesis in both runs. They are admitted here because both cut *against* the thesis, and
+an instrument tilted toward a claim is worth listening to when it argues the other way. Neither
+is worth anything as confirmation, and a sixth maintainer round would be worth less. Only the
+[Measure](#measure) moves this.
 
 The load-bearing assumption is now: **people arrive with a question already formed.**
 
@@ -175,6 +235,17 @@ old one — but the evidence does not yet point at it, and the kill condition na
 already half-fired on the three days that produced the thesis. If most people arrive with
 nothing but a URL and vague curiosity, this collapses back to plain summarisation — the same
 failure the previous thesis died of, reached by a different road.
+
+**Step 5 moves this slightly, in the thesis' favour, and the same counting rule is applied.**
+Of its three usable titles: one produced a specific part-level question (#3), one produced
+*"What is this about?"* and nothing else (#4), and one produced *"what are the insights from
+this"* plus a relate-to-my-field question (#2). The middle clause of #2 is scored **not a
+question** — it is verbatim the `SESSION.md` §2 move that convicted day 2, and scoring it a hit
+here after convicting it there is the failure this document keeps catching itself in. So: 1 of
+3 clear, the same ratio as Step 2, on a different set of sources. The assumption is unmoved,
+not strengthened — and note that these questions formed *on reading a title*, which is the
+realistic arrival and counts, rather than before pressing play as the wording in
+[The job](#the-job) implies.
 
 ## What changed and why
 
