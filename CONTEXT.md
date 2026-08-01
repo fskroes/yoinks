@@ -19,10 +19,10 @@ where they exist, and otherwise recognised from the audio. Every line carries th
 said; without that, an answer cannot be checked.
 _Avoid_: Caption file, subtitles
 
-**Map**:
-The shape of a source: where its segments start and end, in time, including the parts worth
-skipping. A map says what the source is built out of, never what it says.
-_Avoid_: Outline, summary, chapters
+**Skippable region**:
+A span of a source that is not the source: a sponsor read, a subscribe interruption, a creator
+outro. Marked in time, and always traceable to the line that gave it away.
+_Avoid_: Map, chapter, segment, ad break, filler
 
 **Answer**:
 Facts drawn from a transcript, each pointing back to where in the source media it came from.

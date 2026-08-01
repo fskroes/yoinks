@@ -2,28 +2,31 @@
 
 Working thesis about what a person wants after Yoinks produces a transcript. Provisional — see [Evidence](#evidence).
 
-Uses the vocabulary in `CONTEXT.md`: **source URL**, **artifact**, **transcript**, **map**,
-**answer**. Constrained by [ADR 0001](adr/0001-facts-never-conclusions.md) and
-[ADR 0002](adr/0002-drive-an-assistant-on-path.md).
+Uses the vocabulary in `CONTEXT.md`: **source URL**, **artifact**, **transcript**, **skippable
+region**, **answer**. Constrained by [ADR 0001](adr/0001-facts-never-conclusions.md),
+[ADR 0002](adr/0002-drive-an-assistant-on-path.md) and
+[ADR 0003](adr/0003-skippable-regions-not-a-map.md).
 
 Supersedes the 2026-07-25 corpus/diff thesis, which was tested and largely falsified. See
 [What changed and why](#what-changed-and-why).
 
-**Status: frozen 2026-07-29, reopened at Constraint 5 on 2026-07-31 by evidence.** Frozen means
-no further revision from the armchair. This document had already been rewritten twice: once
-from evidence (Step 2), once from grilling (Step 3, same day, no new evidence in between). A
-third pass without new evidence would have been fitting theory to theory. The previous thesis
-died the right way, contradicted by reality inside 48 hours; this one gets the same treatment
-or none. Everything durable has been drained out of it — vocabulary into `CONTEXT.md`,
-decisions into `docs/adr/`, the gate into [Measure](#measure). Only evidence reopens it.
+**Status: frozen 2026-07-29. Reopened 2026-07-31 by evidence, resolved 2026-08-01 by decision,
+and frozen again.** Frozen means no further revision from the armchair. This document had
+already been rewritten twice before that: once from evidence (Step 2), once from grilling
+(Step 3, same day, no new evidence in between). The previous thesis died the right way,
+contradicted by reality inside 48 hours; this one gets the same treatment or none. Everything
+durable has been drained out of it — vocabulary into `CONTEXT.md`, decisions into `docs/adr/`.
 
-**What reopened it.** `docs/validation/step-5-title-falsifier.md` ran the title-alone control
-that Step 4 could not, and it fired: a bare title produced the relate-to-what-I-track question,
-and a title that enumerates topics produced a request for one *part* — the narrowing the map
-exists to do, without a map. Constraint 5 and [What this makes possible](#what-this-makes-possible)
-are amended below. Nothing else in this document is touched, and the amendment narrows the
-claim rather than replacing it: the armchair rule still holds for everything the evidence did
-not reach.
+**What happened on 31 July and 1 August.** `docs/validation/step-5-title-falsifier.md` ran the
+title-alone control Step 4 could not, and it fired: a title listing five topics produced a
+request for one of them, with no map involved. That reopened Constraint 5. It was then closed —
+not by further evidence, but by a decision, because the gate that would have produced further
+evidence is withdrawn. See [ADR 0003](adr/0003-skippable-regions-not-a-map.md) and
+[Measure](#measure). The map is gone from the product and from the language.
+
+**Read this next, before anything else here:** the [Measure](#measure) section no longer
+contains a gate. Yoinks is built on n=1, permanently and by choice. Nothing in this document
+is waiting to be checked by anyone.
 
 ## The job
 
@@ -71,28 +74,23 @@ URL field. That is input convenience — it holds nothing about what a source sa
 inference. The line to hold is content, not state. Logging *questions asked* would cross it,
 and would rebuild the corpus this thesis exists to have killed.
 
-**5. Most people arrive without a question. Whether a map is the answer is now the open
-question, not the answer.**
+**5. Most people arrive without a question, and Yoinks has no special answer for them.**
 An earlier draft called the questionless arrival degenerate. The evidence says it is the
 majority: two of three. Handing that majority an unasked-for account of the content is
 summarisation with better manners, and it is the session the evidence rates worst. That much
-holds. The proposed answer was to hand back the *shape* of the source — segments, times, the
-parts worth skipping — so the person could see what is in there and ask for the part they want.
+holds, and it is the whole of what this constraint now says.
 
-**Step 5 took the "so" out of that sentence.** The title alone already does the work on sources
-whose titles carry subject matter: a five-word title produced a question, and a title listing
-five topics produced a request for one of them. Meanwhile Step 4 put a real map in front of two
-questionless arrivals and both came back **"overall"** — no narrowing at all. So the constraint
-now reads:
+The proposed answer was a **map** — segment boundaries in time — whose job was to make the
+person see what is in there and ask for the part they want. **Resolved against, by decision, in
+[ADR 0003](adr/0003-skippable-regions-not-a-map.md).** Two readings produced whole-source
+questions and recorded the provoking segment as "overall" both times; Step 5's title-alone
+control then produced the part request with no map involved. The evidence is thin — n=2 from
+the author — but the gate that would have thickened it is withdrawn, and Yoinks does not ship
+an unvalidated majority path.
 
-> Where the title carries subject matter, the map has no established job — the title is doing
-> it. Where the title carries none, the map is the only candidate, and it is precisely there
-> that Step 4 measured it failing to narrow.
-
-Branch 5 is therefore reduced to one testable claim: **does a map beat a title, on sources
-whose titles carry nothing?** Neither run has yet produced a case where it does. Until one
-exists, the map is not the answer to the questionless arrival — it is the untested hypothesis
-about it.
+What the questionless arrival gets is the transcript with its **skippable regions** marked, and
+nothing else. That is a smaller claim and a fact-shaped one; see
+[What this makes possible](#what-this-makes-possible).
 
 ## What this makes possible
 
@@ -101,30 +99,23 @@ about it.
 Spokenly for dictation [3:57], fast mode always [4:45]." Facts, timestamped, everything else
 discarded. Works on the first video from a person never seen before.
 
-**No question → a map of the source.**
-The majority case. Where the segments begin and end, in time, with sponsor reads, subscribe
-interruptions and outros marked as skippable. Structure, never content — so it cannot drift
-into summarisation, and so a weak thinker and a strong one are not flattened into the same
-competent prose. A map is also the cheapest thing here: it is arithmetic over a timed
-transcript, so it can render immediately while an answer waits on a model.
+**No question → the transcript, with its skippable regions marked.**
+The majority case, and a deliberately small answer to it. Sponsor reads, subscribe
+interruptions and outros, marked in time, each traceable to the line that gave it away. Nothing
+about where the source changes subject — see [ADR 0003](adr/0003-skippable-regions-not-a-map.md)
+for why that was cut, and `docs/validation/` for the two runs that cut it.
 
-Its claimed work was provoking the question: someone looking at where a source changes subject
-knows which part they want and asks for it, turning the questionless majority into the case
-above rather than serving them a worse chat application. **That mechanism has been measured
-twice and has not operated.** Step 4, two map readings, both "overall". Step 5, four titles and
-no map, one clean part request. A topic-listing title is already a low-resolution map, and on
-the record so far it narrows better than the built one.
+This is the most reliable thing in the whole validation trail. Sponsor read found in 6 of 6
+sources, outro in 6 of 6, correctly silent on the three sources that have no outro — scored
+against ground truth Step 1 wrote down before the detector existed. It needs no corpus, no
+model, and no history, and it is arithmetic over a timed transcript, so it renders immediately
+while an answer waits on a model.
 
-What survives is the mechanical half, which is solid: a usable map *can* be built from auto-subs
-(Step 4, nine sources), and the skip layer scores 6/6 on sponsor reads and outros where they
-exist. That is a working instrument. It is not evidence that anyone wants it.
-
-**Skip patterns, within a single source.**
-Sponsor reads, subscribe interruptions, and outros are structurally detectable inside one
-transcript — the sponsor read landed within the same two-minute window in all six sources in
-Step 1, and every outro was identical. This was the cheapest and most reliable result of the
-whole validation exercise, it needs no history at all, and it is now part of the map rather
-than a by-product of machinery that no longer exists.
+It is also honest about its size. Marking three ad breaks is not a product; it is one useful
+mark on a transcript the person was getting anyway. Two of the fresh sources in Steps 4 and 5
+contained **no** sponsor read and no outro, so for those this layer contributes nothing at all.
+If the sources people bring are podcast-shaped, the questionless arrival gets a bare transcript
+and Yoinks has nothing further to offer them. That is the honest state of the majority path.
 
 ## Deliberately not doing
 
@@ -154,34 +145,32 @@ Not summary quality, not engagement, not whether Yoinks was right — it does no
 The earlier wording was "without pasting the transcript somewhere else", which stopped being a
 measure once Yoinks started driving an assistant on the person's PATH: nobody pastes anything,
 so it passes the moment the feature exists. Measure the part Yoinks owns — obtaining a timed
-transcript, marking the shape of the source, and keeping fifteen thousand words off a human's
-clipboard. The model was always going to be somebody else's.
+transcript, marking what in it is not the source, and keeping fifteen thousand words off a
+human's clipboard. The model was always going to be somebody else's.
 
-**How it gets measured.** Not in the product: nothing may log what was asked (see Constraint
-4). By repeating the Step 2 diary method with **people who are not the maintainer** — three of
-them, a week, one line per source.
+### The gate is withdrawn, 2026-08-01
 
-The log is four columns, not one. Step 4 designed three on the assumption that the title was
-inert; Step 5 showed it is not, so column 1 is load-bearing and column 4 exists to separate the
-map's contribution from the title's:
+Earlier versions of this section said: *"This is the gate, and it is not optional."* It named
+three non-maintainers, a week, and the Step 2 diary method, and everything downstream waited on
+it. **It is not going to be run**, and a gate nobody will open is worse than no gate — it lets
+a document keep the posture of an experiment in flight while the experiment is over.
 
-1. **Here is the title. What do you want to ask?**
-2. **Here is the map. Does that change?**
-3. **Which part do you want?**
-4. **Did the map add anything the title had not already given you?**
+So it is struck rather than deferred, and the consequence is stated plainly instead:
 
-Column 1 must be answered and written down *before* the map is shown — that ordering is the
-whole control, and Step 4 failed for want of it. Record the title verbatim alongside the
-answer; whether it enumerates topics is the variable Step 5 says predicts the question.
+> **Yoinks is built on n=1 and will stay that way.** One person, the author of this document,
+> across nine sources and three validation rounds. Nothing here has been checked against a
+> stranger, and nothing here is going to be.
 
-The map for column 2 comes from `npm run prototype:map -- <url> --plain`. The prototype is
-adequate and should not be improved first — its known defects (45-second block granularity,
-unexploited `>>` speaker markers) are not why either run came out as it did.
+That is a bet, and it is [ADR 0003](adr/0003-skippable-regions-not-a-map.md)'s bet. It is not a
+defect as long as it is stated; it becomes one the moment any part of this repository implies
+otherwise. Every claim below the line of "the transcript came out and the times are right" is
+unvalidated, and the two claims that *were* put in front of a measurement — the map provoking
+a question, the corpus being worth accumulating — both came back against.
 
-This is the gate, and it is not optional. Every document in this repository carries the same
-`n=1` caveat, and the load-bearing assumption is down to a single observation. A fourth round
-of the maintainer watching themselves cannot move it; he already knows what he does. The next
-real evidence costs three other people and a week, using a method that has now worked twice.
+**What still gets measured, without anyone else.** Mechanical claims, against ground truth
+written down before the code exists. That is how skippable regions got to 6/6 and 6/6, and it
+is the only kind of evidence this project has ever produced that was worth anything. Anything
+requiring a human reaction is now a design decision, taken openly, recorded in `docs/adr/`.
 
 ## Known cost
 
@@ -216,8 +205,12 @@ Steps 4 and 5 add six more sources — two map readings and four titles — and 
 that caveat in the slightest. Same person, the author of the document being tested, who knew
 the hypothesis in both runs. They are admitted here because both cut *against* the thesis, and
 an instrument tilted toward a claim is worth listening to when it argues the other way. Neither
-is worth anything as confirmation, and a sixth maintainer round would be worth less. Only the
-[Measure](#measure) moves this.
+is worth anything as confirmation, and a sixth maintainer round would be worth less.
+
+**Nothing will move this.** The gate that could have is withdrawn (see [Measure](#measure)).
+`n=1` is the permanent state of this document, not a stage it is passing through, and every
+claim below should be read as a bet the maintainer is taking knowingly rather than a finding
+awaiting confirmation.
 
 The load-bearing assumption is now: **people arrive with a question already formed.**
 

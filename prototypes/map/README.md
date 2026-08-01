@@ -132,25 +132,25 @@ The title-alone control was never run and is now the load-bearing unknown.
 Full record, both corrections, and caveats in `recording.md`. Nothing here unfreezes
 `docs/product-thesis.md`.
 
-## Status — 2026-07-31: do not delete yet
+## Status — 2026-08-01: answered, and half of it is being kept
 
-A prototype is throwaway by default: keep the answer, delete the code. This one is held back,
-for one reason only — it is the **instrument** for column 2 of the Measure. Three
-non-maintainers need a map to read, and `npm run prototype:map -- <url> --plain` is what
-produces it.
+**This prototype's question is closed.** See
+[ADR 0003](../../docs/adr/0003-skippable-regions-not-a-map.md). The short version:
 
-It should **not** be improved first. Defects 1 and 5 below are real and stay unfixed: finer
-block boundaries do not turn *"overall"* into *"minutes 36 to 46"*, and rebuilding the map
-after an ambiguous reading is what the kill condition forbids in advance.
+- The title-alone control this file names below as "the load-bearing unknown" was run on
+  2026-07-31 — `docs/validation/step-5-title-falsifier.md`. It fired. A title listing five
+  topics produced the part request that neither map reading did.
+- The Measure that would have settled it properly is **withdrawn**, so the question is closed
+  by decision rather than by measurement.
+- **`topicalBoundaries` does not ship.** A segment boundary is an inference about where the
+  subject changes with nothing in the transcript to check it against, and ADR 0001 rules that
+  out on its own. Defects 1 and 5 below stay unfixed; they were never why the readings came
+  out as they did.
+- **`skipCues` / `growSkips` do ship**, promoted into `src/` under the name **skippable
+  region**. The word *map* is retired from the product and from `CONTEXT.md`.
 
-Delete it once the Measure clears — either into `src/` if branch 5 survives, or into the bin
-if it doesn't.
-
-**The provocation result below was superseded on 2026-07-31.** The title-alone control it
-names as the load-bearing unknown was run: `docs/validation/step-5-title-falsifier.md`. It
-fired, and it reopened Constraint 5 of `docs/product-thesis.md` — a title listing topics
-produced the part request that neither map reading did. Read that file before trusting the
-2026-07-30 section as the current state.
+Everything below this line is the record as written on 2026-07-29/30, kept unedited. Read it as
+history, not as the current state.
 
 ## Files
 

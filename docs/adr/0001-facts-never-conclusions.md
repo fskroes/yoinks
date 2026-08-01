@@ -18,6 +18,12 @@ The constraint is load-bearing for two later decisions and is easy to violate by
 - The no-question path returns a **map** — the shape of a source, its segment boundaries and
   its skippable regions — rather than an account of what the source says. Structure cannot
   express an opinion; prose about content always can, and drifts into one.
+
+  *Amended by [ADR 0003](0003-skippable-regions-not-a-map.md), 2026-08-01: "structure cannot
+  express an opinion" was too generous to itself. A segment boundary is an inference about
+  where the subject changes with nothing in the transcript to check it against — this
+  constraint rules it out, and it took two failed measurements to notice. The no-question path
+  returns marked **skippable regions**, which are facts. The constraint below is unchanged.*
 - "Prefer verbatim over paraphrase" exists for the same reason. A summary flattens a weak
   thinker and a strong one into the same competent prose, which is a judgment about the
   source smuggled in as a writing style.
