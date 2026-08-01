@@ -59,12 +59,18 @@ click the theme control in the footer to cycle through `auto`, `light`, and
   no Python required. If you already have yt-dlp installed, it uses yours.
 - ffmpeg (needed for merging high-res streams and mp3 extraction) is found
   on your PATH, with `ffmpeg-static` as a bundled fallback.
-- The `transcript · txt` option downloads the audio, transcribes it locally
-  with [whisper.cpp](https://github.com/ggerganov/whisper.cpp)
-  (`brew install whisper-cpp`), and saves a `.txt` to `~/Downloads` — the
-  audio itself is discarded. On first use the ggml-base model (~142MB) is
-  downloaded to `~/.yoinks/models`, unless one already exists in
-  `~/.cache/whisper` or `$YOINKS_WHISPER_MODEL` points at another model.
+- The `transcript · txt` option saves a `.txt` to `~/Downloads`. Where the
+  platform publishes its own English captions it uses those, which is fast and
+  needs nothing installed: every line carries the time it was said, and sponsor
+  reads, subscribe interruptions and creator outros are marked with the phrase
+  that gave each one away, so you can check it against the source.
+- Where a source has no captions, it falls back to downloading the audio and
+  transcribing it locally with
+  [whisper.cpp](https://github.com/ggerganov/whisper.cpp)
+  (`brew install whisper-cpp`) — the audio itself is discarded. On first use
+  the ggml-base model (~142MB) is downloaded to `~/.yoinks/models`, unless one
+  already exists in `~/.cache/whisper` or `$YOINKS_WHISPER_MODEL` points at
+  another model. That path is not timed, so nothing is marked in it.
 - The UI is [Ink](https://github.com/vadimdemedes/ink) — React for the
   terminal.
 

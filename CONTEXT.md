@@ -16,8 +16,16 @@ _Avoid_: Format, download format
 **Transcript**:
 A timed record of what is said in the source media — taken from the platform's own captions
 where they exist, and otherwise recognised from the audio. Every line carries the time it was
-said; without that, an answer cannot be checked.
+said; without that, an answer cannot be checked and no skippable region can be marked. Audio
+recognised locally is not yet timed, so a source with no captions gives up the words and none
+of the marks.
 _Avoid_: Caption file, subtitles
+
+**Block**:
+One timed paragraph of a transcript — around 45 seconds of what was said, carrying the time
+the first line in it landed. It is the unit a skippable region is measured in and the finest
+grain anything can be marked at, so it is a domain term rather than a formatting choice.
+_Avoid_: Chunk, paragraph, segment
 
 **Skippable region**:
 A span of a source that is not the source: a sponsor read, a subscribe interruption, a creator

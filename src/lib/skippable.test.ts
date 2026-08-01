@@ -80,7 +80,7 @@ test('a sponsor read runs on while the ad keeps repeating its product name', () 
 
 // Growth is capped, so a read that keeps naming its product cannot swallow the
 // rest of the source. Regions over-reach on purpose — under-growing was tried
-// and was worse, because it leaked ad copy into the next segment — but the
+// and was worse, because it leaked ad copy into what follows the read — but the
 // over-reach is bounded rather than open-ended.
 test('a sponsor read stops growing after its reach, however long the ad runs', () => {
   const rest = Array.from({length: 30}, (_, i) => ({

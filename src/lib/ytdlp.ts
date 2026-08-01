@@ -132,6 +132,87 @@ export async function probe(ytdlp: string, url: string, signal?: AbortSignal): P
   return {info, infoJsonPath}
 }
 
+/**
+ * The language of captions to ask for.
+ *
+ * Hardcoded, and deliberately the same value the corpus script used, because
+ * every measurement behind the skippable-region detector was taken on `en`
+ * auto-subs. A source whose caption track is named anything else — `en-US`,
+ * `en-orig`, another language entirely — writes no file here and falls through
+ * to whisper. That costs coverage; widening it costs the only evidence there is.
+ */
+const SUB_LANG = 'en'
+
+export type Captions = {
+  /** Raw VTT, exactly as the platform wrote it. */
+  vtt: string
+  /** The filename yt-dlp chose from the title, already sanitized for this OS. */
+  name: string
+}
+
+/** `Some title.en.vtt` — the language yt-dlp appends is not part of the name. */
+const SUB_SUFFIX = /\.[A-Za-z0-9-]+\.vtt$/
+
+/**
+ * Fetch the platform's own captions for a source, as raw VTT.
+ *
+ * Deliberately not a flag on `download()`. A `--skip-download` run prints
+ * neither `after_move:filepath` nor progress lines, so bending `download()` to
+ * cover it would mean special cases through the progress and cancel paths,
+ * which are the fiddliest code in this file.
+ *
+ * Returns undefined when the source has no captions in {@link SUB_LANG} — the
+ * caller falls back to transcribing the audio. Anything short of a cancel is
+ * treated as "no captions" rather than an error: the probe already proved the
+ * source resolves, and if it has genuinely gone away the fallback's own
+ * download will say so.
+ */
+export async function fetchCaptions(
+  opts: {ytdlp: string; url: string},
+  signal?: AbortSignal,
+): Promise<Captions | undefined> {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'yoinks-captions-'))
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const child = spawn(
+        opts.ytdlp,
+        [
+          opts.url,
+          '--skip-download',
+          '--write-auto-subs',
+          '--sub-lang',
+          SUB_LANG,
+          '--sub-format',
+          'vtt',
+          '--no-playlist',
+          '--no-warnings',
+          // the same template download() uses, so the .txt is named the way
+          // every other artifact is — and so yt-dlp does the sanitizing
+          '-o',
+          path.join(dir, '%(title).60s.%(ext)s'),
+        ],
+        {stdio: 'ignore', signal},
+      )
+      child.on('error', reject)
+      child.on('close', () => resolve())
+    })
+    if (signal?.aborted) throw new Error('Cancelled.')
+
+    const written = await fs.readdir(dir)
+    const file = written.find(name => name.endsWith('.vtt'))
+    if (!file) return undefined
+    return {
+      vtt: await fs.readFile(path.join(dir, file), 'utf8'),
+      name: file.replace(SUB_SUFFIX, ''),
+    }
+  } catch (error) {
+    if (signal?.aborted) throw error
+    return undefined
+  } finally {
+    void fs.rm(dir, {recursive: true, force: true})
+  }
+}
+
 export type DownloadChoice = {
   label: string
   kind: 'video' | 'audio' | 'transcript'
@@ -186,7 +267,8 @@ export function buildChoices(info: VideoInfo): DownloadChoice[] {
 
   choices.push({
     kind: 'transcript',
-    // audio is downloaded to a temp dir and transcribed locally with whisper.cpp
+    // the platform's own captions where they exist — these args are the
+    // fallback, where audio goes to a temp dir and whisper.cpp transcribes it
     label: 'transcript · txt',
     args: ['-f', 'ba/b'],
   })

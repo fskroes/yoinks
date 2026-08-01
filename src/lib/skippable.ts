@@ -145,9 +145,9 @@ export function detectSkippableRegions(blocks: Block[]): SkippableRegion[] {
   // A word is the read's own if the rest of the source hardly ever says it.
   // The threshold is a share of this source's own length, never a constant: a
   // number fitted to one corpus would not survive the next source.
-  const sources = new Map<string, number>()
+  const blocksWithWord = new Map<string, number>()
   for (const inBlock of words) {
-    for (const word of inBlock) sources.set(word, (sources.get(word) ?? 0) + 1)
+    for (const word of inBlock) blocksWithWord.set(word, (blocksWithWord.get(word) ?? 0) + 1)
   }
   const rareIn = Math.max(2, Math.round(blocks.length * 0.15))
 
@@ -156,7 +156,7 @@ export function detectSkippableRegions(blocks: Block[]): SkippableRegion[] {
   for (const [i, seed] of seeds.entries()) {
     if (!seed || i <= grownThrough) continue
 
-    const brand = [...words[i]].filter(word => (sources.get(word) ?? 0) <= rareIn)
+    const brand = [...words[i]].filter(word => (blocksWithWord.get(word) ?? 0) <= rareIn)
     let last = i
     for (let k = i + 1; k < Math.min(blocks.length, i + 1 + REACH[seed.kind]); k++) {
       // A block that fired its own cue starts its own region, and a block that

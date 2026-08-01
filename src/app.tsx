@@ -22,12 +22,16 @@ import {
   buildChoices,
   download,
   ensureYtDlp,
+  fetchCaptions,
   findFfmpeg,
   probe,
   type DownloadChoice,
   type DownloadProgress,
   type VideoInfo,
 } from './lib/ytdlp.js'
+import {parseCaptions} from './lib/captions.js'
+import {detectSkippableRegions} from './lib/skippable.js'
+import {renderTranscript, renderUntimedTranscript} from './lib/transcript.js'
 import {ensureWhisperModel, findWhisper, transcribe} from './lib/transcribe.js'
 
 const OUT_DIR = path.join(os.homedir(), 'Downloads')
@@ -273,7 +277,12 @@ function AppContent({
     const choice = choices[item.value]
     const controller = new AbortController()
     abortRef.current = controller
-    setPhase({name: 'downloading', choice, processing: false})
+    const transcript = choice.kind === 'transcript'
+    setPhase(
+      transcript
+        ? {name: 'transcribing', status: 'looking for captions…'}
+        : {name: 'downloading', choice, processing: false},
+    )
     void (async () => {
       const handlers = {
         onProgress: (progress: DownloadProgress) =>
@@ -281,12 +290,43 @@ function AppContent({
         onProcessing: () =>
           setPhase(prev => (prev.name === 'downloading' ? {...prev, processing: true} : prev)),
       }
-      // transcripts download the audio to a temp dir — only the .txt lands in Downloads
-      const transcript = choice.kind === 'transcript'
-      const tmpDir = transcript ? await fs.mkdtemp(path.join(os.tmpdir(), 'yoinks-transcribe-')) : undefined
+      const finish = (filepath: string) => {
+        onOutcome({filepath})
+        setHistory(addToHistory(url))
+        setPhase({name: 'done', filepath})
+      }
+      // the whisper fallback downloads audio to a temp dir — only the .txt lands in Downloads
+      let tmpDir: string | undefined
       try {
+        if (transcript) {
+          // The platform's captions are already timed, so this path downloads
+          // nothing and recognises nothing — and being timed is what lets the
+          // interruptions be marked at all (CONTEXT.md, Transcript).
+          const captions = await fetchCaptions({ytdlp: ytdlpRef.current, url}, controller.signal)
+          const blocks = captions ? parseCaptions(captions.vtt) : []
+          if (captions && blocks.length) {
+            const filepath = path.join(OUT_DIR, `${captions.name}.txt`)
+            await fs.mkdir(OUT_DIR, {recursive: true})
+            await fs.writeFile(
+              filepath,
+              renderTranscript({
+                title: info?.title,
+                url,
+                blocks,
+                regions: detectSkippableRegions(blocks),
+              }),
+            )
+            finish(filepath)
+            return
+          }
+          // No captions. Fall back to recognising the audio, which whisper
+          // returns untimed — so nothing is marked on this branch, rather than
+          // marked against times the transcript cannot show.
+          setPhase({name: 'downloading', choice, processing: false})
+        }
         // fail fast on a missing whisper install, before downloading anything
         const whisper = transcript ? await findWhisper() : undefined
+        if (transcript) tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'yoinks-transcribe-'))
         const ffmpegLocation = await findFfmpeg()
         const base = {ytdlp: ytdlpRef.current, ffmpegLocation, url, choice, outDir: tmpDir ?? OUT_DIR}
         let filepath: string
@@ -315,12 +355,9 @@ function AppContent({
           )
           if (!text) throw new Error('No speech found in this video.')
           filepath = path.join(OUT_DIR, `${path.parse(filepath).name}.txt`)
-          const header = [info?.title, url].filter(Boolean).join('\n')
-          await fs.writeFile(filepath, `${header}\n\n${text}\n`)
+          await fs.writeFile(filepath, renderUntimedTranscript({title: info?.title, url, text}))
         }
-        onOutcome({filepath})
-        setHistory(addToHistory(url))
-        setPhase({name: 'done', filepath})
+        finish(filepath)
       } catch (error) {
         if (controller.signal.aborted) return
         setPhase({name: 'error', message: error instanceof Error ? error.message : String(error)})

@@ -1,0 +1,154 @@
+import assert from 'node:assert/strict'
+import test from 'node:test'
+import {parseCaptions} from './captions.js'
+import {detectSkippableRegions} from './skippable.js'
+
+// YouTube auto-subs are rolling: a cue carries the previous cue's line plus a
+// new one, and a 10ms bridge cue in between shows the new line settled. Left
+// in, every word appears in three consecutive cues.
+const ROLLING = `WEBVTT
+Kind: captions
+Language: en
+
+00:00:00.000 --> 00:00:02.070 align:start position:0%
+
+the<00:00:00.560><c> borrow</c><00:00:00.720><c> checker</c><00:00:01.080><c> moves</c><00:00:01.400><c> the</c>
+
+00:00:02.070 --> 00:00:02.080 align:start position:0%
+the borrow checker moves the
+
+
+00:00:02.080 --> 00:00:04.310 align:start position:0%
+the borrow checker moves the
+error<00:00:02.160><c> earlier</c><00:00:02.480><c> than</c><00:00:02.680><c> you'd</c><00:00:03.040><c> like</c>
+
+00:00:04.310 --> 00:00:04.320 align:start position:0%
+error earlier than you'd like
+
+`
+
+test('strips the rolling overlap, so a word said once appears once', () => {
+  assert.deepEqual(parseCaptions(ROLLING), [
+    {start: 0, text: "the borrow checker moves the error earlier than you'd like"},
+  ])
+})
+
+test('drops the header, the cue settings, and the inline word timings', () => {
+  const [block] = parseCaptions(ROLLING)
+
+  assert.equal(/WEBVTT|Kind:|Language:|align:start|position:0%|<[^>]+>/.test(block.text), false)
+})
+
+// The detector's two tuning numbers count blocks, not cues: REACH lets a
+// sponsor read grow 3 blocks, and rareIn scales with block count. Both were
+// calibrated at ~45s paragraphs. Returning raw cues would leave every test in
+// skippable.test.ts passing and make the detector quietly much worse.
+test('groups cues into paragraphs of at least 45 seconds, not raw cues', () => {
+  const blocks = parseCaptions(`WEBVTT
+
+00:00:00.000 --> 00:00:29.000
+the thing about the borrow checker
+
+00:00:30.000 --> 00:00:49.000
+is that it moves the error earlier
+
+00:00:50.000 --> 00:01:19.000
+which is the whole trick
+
+00:01:20.000 --> 00:01:40.000
+back to lifetimes
+`)
+
+  assert.deepEqual(blocks, [
+    {start: 0, text: 'the thing about the borrow checker is that it moves the error earlier which is the whole trick'},
+    {start: 80, text: 'back to lifetimes'},
+  ])
+})
+
+// A block's start is what the ground truth in docs/validation/step-1-cold-read.md
+// was recorded against, and those are whole seconds. Rounding .900 up would move
+// every recorded slot by one.
+test('a block starts at its first cue, truncated to a whole second', () => {
+  const blocks = parseCaptions(`WEBVTT
+
+00:01:34.900 --> 00:01:36.000
+today's sponsor is Clerk
+`)
+
+  assert.deepEqual(blocks, [{start: 94, text: "today's sponsor is Clerk"}])
+})
+
+test('reads timestamps past an hour', () => {
+  const blocks = parseCaptions(`WEBVTT
+
+01:02:03.000 --> 01:02:05.000
+still going
+`)
+
+  assert.deepEqual(blocks, [{start: 3723, text: 'still going'}])
+})
+
+// The overlap is found by the longest match between the previous cue's tail and
+// this cue's head. Taking the shortest would leave duplicated words behind.
+test('takes the longest overlap when the tail and head share several words', () => {
+  const blocks = parseCaptions(`WEBVTT
+
+00:00:00.000 --> 00:00:02.000
+Clerk gives you drop-in sign-in
+
+00:00:02.000 --> 00:00:04.000
+gives you drop-in sign-in and the free tier is generous
+`)
+
+  assert.deepEqual(blocks, [
+    {start: 0, text: 'Clerk gives you drop-in sign-in and the free tier is generous'},
+  ])
+})
+
+test('a source with no cues is no blocks, not one empty block', () => {
+  assert.deepEqual(parseCaptions('WEBVTT\nKind: captions\nLanguage: en\n'), [])
+  assert.deepEqual(parseCaptions(''), [])
+})
+
+/** The rolling shape auto-subs actually arrive in: every cue reprints the line before it. */
+function rollingVtt(lines: string[], every: number): string {
+  const stamp = (s: number) =>
+    `00:${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}.000`
+  const cues = lines.map((line, i) => {
+    const at = i * every
+    const previous = i > 0 ? `${lines[i - 1]}\n` : ''
+    return `${stamp(at)} --> ${stamp(at + 2)} align:start position:0%\n${previous}${line}\n`
+  })
+  return `WEBVTT\nKind: captions\nLanguage: en\n\n${cues.join('\n')}`
+}
+
+// The point of the whole caption path: what comes out of it is something
+// detectSkippableRegions can run on, at the granularity its two tuning numbers
+// were calibrated for. What this pins down is the paragraph grouping — the
+// overlap strip is guarded by the first and sixth tests, and does not on its
+// own decide whether a region is found (see captions.ts).
+test('produces blocks a sponsor read can be detected in', () => {
+  const blocks = parseCaptions(
+    rollingVtt(
+      [
+        'the thing about the borrow checker is that it moves the error earlier',
+        'and once you see it that way the iterator loop stops fighting you',
+        'that is genuinely the whole reason people put up with it',
+        "before we get into it, today's sponsor is Clerk, authentication for your app",
+        'Clerk gives you drop-in sign-in and it took me an afternoon',
+        'Clerk handles the session tokens so you never touch them',
+        'Clerk has a generous free tier as well, which is unusual',
+        'Clerk, honestly, is the bit I stopped having to think about',
+        'and that is the last I will say about Clerk',
+        'right, back to the borrow checker and where lifetimes get inferred',
+        'that is the trick, it is not more complicated than that',
+      ],
+      30,
+    ),
+  )
+
+  assert.deepEqual(blocks.map(block => block.start), [0, 90, 180, 270])
+  assert.deepEqual(detectSkippableRegions(blocks), [
+    {start: 90, end: 270, kind: 'sponsor', cues: ["today's sponsor"]},
+  ])
+})
