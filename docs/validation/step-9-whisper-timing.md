@@ -183,13 +183,72 @@ whisper output would not produce one on the old path either, since `cleanTranscr
 noise-only lines to the empty string that raised the same error. The difference is in what whisper
 returns, not in this change.
 
-**What was not exercised: the ink wiring.** Step 6 drove both branches through `node dist/cli.js`
-in a pty. That is not reproduced here — under both `script` and `expect` the picker rendered but
-no keystroke ever reached it, so the selection could not be moved off the first choice. Phases,
-cancel, and the picker are therefore unverified for this change, exactly as the handoff's rule
-that the wiring is not a test seam leaves them. The answer path's new fallback — a caption-less
-source now recognises its audio instead of refusing — is the part this most affects, and it has
-been read but not run.
+### The ink wiring was exercised too — 2026-08-03
+
+Step 6 drove both branches through `node dist/cli.js` in a pty; the first attempt at reproducing
+that here failed, because under both `script` and `expect` the picker rendered but no keystroke
+ever reached it. **`tmux` drives it.** `tmux send-keys` names keys (`Down`, `Enter`, `Escape`)
+instead of emitting raw escape bytes, which is what `expect` could not get through:
+
+The harness is kept, because the next TUI change needs it too:
+[`scripts/drive-tui.sh`](../../scripts/drive-tui.sh). It takes a url and a list of steps
+(`until:`, `key:`, `type:`, `wait:`) and captures the screen after each one, so a run leaves the
+trace of what the product drew rather than only where it stopped. Row 1 below is:
+
+```
+scripts/drive-tui.sh 'https://www.youtube.com/watch?v=32iH1WBJbJo' \
+  'until:Save as' key:Down key:Down key:Down key:Down key:Down key:Down key:Down key:Down key:Down \
+  'until:transcript · txt' key:Enter 'until:yoinked'
+```
+
+Five runs against the real CLI, screen captured about once a second throughout:
+
+| # | Source | Driven | Result |
+|---|---|---|---|
+| 1 | `32iH1WBJbJo` (captioned) | `transcript · txt` | `looking for captions…` only, then done in ~3s. `Oh no....txt` — 22 blocks, `[m:ss]` throughout, `sponsor 1:36–4:48`, `outro 16:34–end`. No download. |
+| 2 | `DuckandC1951` (no captions) | `transcript · txt` | `looking for captions…` → `starting download…` with a bar → `transcribing with local whisper…` with a percentage → done. `Duck and Cover.txt` — 10 timed blocks across 9:15. Timed, not flat — but this source carries no marks to find, so the picker path shows *timed* only (see below). |
+| 3 | same | typed a question | `looking for an assistant…` → `reading the captions…` → `no captions — recognising the audio instead…` → `fetching the audio… N MB / 55 MB` → `recognising the audio…` → `transcribing with local whisper…` with a percentage → `asking Claude Code…` → five facts, each stamped `[m:ss]` and quoting the source. |
+| 4 | same | `esc` during whisper, **answer path** | Cancels `recognise()`'s own run. Returns to the input screen with the url still in it. Its `$TMPDIR/yoinks-transcribe-*` removed, no `yoinks-captions-*` left, no orphaned `whisper-cli` or `yt-dlp`. |
+| 5 | same | `esc` during whisper, **picker path** | The same, for the picker's separate download and temp dir. |
+
+Row 1 is byte-for-byte the artifact the function-level run above produced, so the picker path and
+the direct path agree. **Row 3 is the path nothing had run** — the answer path's new fallback, a
+caption-less source recognising its audio instead of refusing. It works, and the facts carry the
+timestamps that were the whole point of the change.
+
+Two things the runs showed that reading the code did not:
+
+- **The fallback is not cheap, and how expensive depends on the source.** Row 3 took ~175s, of
+  which ~150s was the download. The transcript rung asks yt-dlp for `-f ba/b`, and a source with
+  no separate audio stream falls to `/b` — the whole 55 MB video here, against the `~4.2 MB` the
+  picker estimates for its own transcoded audio. The phase label still reads `fetching the audio…`
+  while that happens. Left as is: the switch is announced before the download starts, the byte
+  counter shows the real size within a second or two of it starting, and rows 4 and 5 prove `esc`
+  gets out cleanly. See the decision recorded below.
+- **A non-English source is not a way to trigger the fallback.** YouTube auto-translates its
+  generated captions into every language it offers, so `--sub-lang en` succeeds on a Spanish or
+  Welsh source and never reaches whisper. Caption-less-with-speech is genuinely rare on YouTube;
+  `archive.org` public-domain film is a reliable source of it.
+
+**Marks did not fire on row 2**, and should not have: a 1951 civil-defence film contains no sponsor
+read and no outro. So *marked* is the one property of the artifact these runs do not show, and the
+honest statement of what was verified is narrower than "timed and marked through the picker": the
+six-source measurement above is what establishes the detector finds marks in whisper-derived
+blocks, and the function-level table before it is what shows the product's own path producing them
+(`sponsor 0:52–2:26`, `outro 16:11–end`). Row 2 adds that the wiring reaches that path and the
+artifact comes back timed rather than flat. Closing the gap needs a source that is caption-less
+*and* carries a sponsor read; the search above did not find one, and a captioned source cannot be
+forced onto the whisper rung from the picker.
+
+### Should the fallback announce its cost first? — decided 2026-08-03, no
+
+Asking about a caption-less source now spends minutes and tens of megabytes where it used to fail
+in seconds. Watching row 3 happen, the answer is to leave it alone rather than add a confirmation
+step. The product already says `no captions — recognising the audio instead…` about four seconds
+before the download starts, shows `N MB / 55 MB` as soon as yt-dlp reports a total, and `esc`
+cancels from any point in it and cleans up — row 4. A confirm screen would add a phase and a
+keyboard state to every caption-less ask in order to prevent something the person can already stop
+with one keypress, and can already see coming.
 
 ## What this is not
 
