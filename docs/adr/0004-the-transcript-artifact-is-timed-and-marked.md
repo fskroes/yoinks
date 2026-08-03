@@ -63,6 +63,17 @@ detector runs and nobody ever sees the result.
   without captions gets a flat file and no marks. That is stated in `CONTEXT.md` rather than
   hidden, and closing it is option (a) of [issue #5](https://github.com/fskroes/yoinks/issues/5),
   which is not done.
+
+  *Closed 2026-08-03.* It was never a property of whisper, only of the `--no-timestamps` flag
+  this code passed it. `whisper-cli -ovtt` writes the same `00:00:00.000 --> ` cues the
+  platform's captions arrive in, so both rungs now parse through `parseCaptions` to the same
+  blocks and the fallback produces the same artifact, marks and all.
+  [`step-9-whisper-timing.md`](../validation/step-9-whisper-timing.md) measures the detector
+  against whisper-derived blocks on Step 1's six sources — sponsor 6 of 6, outro 6 of 6, the
+  same as the caption path scored the same day — with two costs recorded rather than tuned
+  away: whisper's blocks run ~50s against the captions' ~46s so region starts land earlier, and
+  an ASR word error (*"today sponsors"* for *"Today's sponsor is"*) loses one mid-roll in one
+  source. `renderUntimedTranscript` is deleted; there is one artifact again.
 - **Expect "just give me clean text" to be asked for.** The answer is that the times are what
   make the file checkable, and checkable is the whole product. A flag is a reasonable thing to
   add; a flat default is not.

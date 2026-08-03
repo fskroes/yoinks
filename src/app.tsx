@@ -30,8 +30,8 @@ import {
   type VideoInfo,
 } from './lib/ytdlp.js'
 import {parseCaptions} from './lib/captions.js'
-import {detectSkippableRegions} from './lib/skippable.js'
-import {renderTranscript, renderUntimedTranscript, stamp} from './lib/transcript.js'
+import {detectSkippableRegions, type Block} from './lib/skippable.js'
+import {renderTranscript, stamp} from './lib/transcript.js'
 import {ensureWhisperModel, findWhisper, transcribe} from './lib/transcribe.js'
 import {buildPrompt, parseFacts, type Fact} from './lib/answer.js'
 import {ask, findAssistant} from './lib/assistant.js'
@@ -105,6 +105,48 @@ function indeterminateMeta(progress: DownloadProgress): string {
   const bytes = formatBytes(progress.downloadedBytes)
   const speed = progress.speed ? formatSpeed(progress.speed) : ''
   return `${partLabel(progress)}${bytes.padStart(8)}  ${speed.padEnd(10)}`
+}
+
+/**
+ * Recognise a source's audio into timed blocks: fetch the audio to a temp
+ * directory, hand it to whisper, throw the audio away.
+ *
+ * What comes back is the same shape the platform's captions parse to, so a
+ * caller cannot tell which rung ran except by how long it took — measured in
+ * `docs/validation/step-9-whisper-timing.md`. Only the answer path uses this;
+ * the picker drives its own download because that one carries the chosen
+ * format, the part counter and the expired-URL retry.
+ */
+async function recognise(
+  opts: {ytdlp: string; url: string; choice: DownloadChoice},
+  on: {onStatus: (status: string) => void; onPercent: (percent: number) => void},
+  signal: AbortSignal,
+): Promise<Block[]> {
+  // fail fast on a missing whisper install, before downloading anything
+  const whisper = await findWhisper()
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'yoinks-transcribe-'))
+  try {
+    const ffmpegLocation = await findFfmpeg()
+    const mediaPath = await download(
+      {ytdlp: opts.ytdlp, ffmpegLocation, url: opts.url, choice: opts.choice, outDir: tmpDir},
+      {
+        onProgress: progress =>
+          on.onStatus(
+            `fetching the audio… ${formatBytes(progress.downloadedBytes)}${
+              progress.totalBytes ? ` / ${formatBytes(progress.totalBytes)}` : ''
+            }`,
+          ),
+        onProcessing: () => on.onStatus('fetching the audio…'),
+      },
+      signal,
+    )
+    const model = await ensureWhisperModel(on.onStatus, signal)
+    if (signal.aborted) throw new Error('Cancelled.')
+    on.onStatus('recognising the audio…')
+    return await transcribe({mediaPath, ffmpeg: ffmpegLocation, whisper, model}, on.onPercent, signal)
+  } finally {
+    void fs.rm(tmpDir, {recursive: true, force: true})
+  }
 }
 
 export type Outcome = {filepath?: string}
@@ -349,6 +391,18 @@ function AppContent({
         setHistory(addToHistory(url))
         setPhase({name: 'done', filepath})
       }
+      // Where both rungs meet. The platform's captions and whisper's own VTT
+      // parse to the same timed blocks, so there is one artifact rather than a
+      // marked one and a flat one (ADR 0004).
+      const writeTranscript = async (name: string, blocks: Block[]) => {
+        const filepath = path.join(OUT_DIR, name)
+        await fs.mkdir(OUT_DIR, {recursive: true})
+        await fs.writeFile(
+          filepath,
+          renderTranscript({title: info?.title, url, blocks, regions: detectSkippableRegions(blocks)}),
+        )
+        return filepath
+      }
       // the whisper fallback downloads audio to a temp dir — only the .txt lands in Downloads
       let tmpDir: string | undefined
       try {
@@ -359,23 +413,12 @@ function AppContent({
           const captions = await fetchCaptions({ytdlp: ytdlpRef.current, url}, controller.signal)
           const blocks = captions ? parseCaptions(captions.vtt) : []
           if (captions && blocks.length) {
-            const filepath = path.join(OUT_DIR, `${captions.name}.txt`)
-            await fs.mkdir(OUT_DIR, {recursive: true})
-            await fs.writeFile(
-              filepath,
-              renderTranscript({
-                title: info?.title,
-                url,
-                blocks,
-                regions: detectSkippableRegions(blocks),
-              }),
-            )
-            finish(filepath)
+            finish(await writeTranscript(`${captions.name}.txt`, blocks))
             return
           }
-          // No captions. Fall back to recognising the audio, which whisper
-          // returns untimed — so nothing is marked on this branch, rather than
-          // marked against times the transcript cannot show.
+          // No captions. Fall back to recognising the audio, which whisper also
+          // returns timed — so this branch produces the same artifact, marks and
+          // all, and differs only in how long it takes.
           setPhase({name: 'downloading', choice, processing: false})
         }
         // fail fast on a missing whisper install, before downloading anything
@@ -402,14 +445,13 @@ function AppContent({
           )
           if (controller.signal.aborted) return
           setPhase({name: 'transcribing', status: 'transcribing…', percent: 0})
-          const text = await transcribe(
+          const blocks = await transcribe(
             {mediaPath: filepath, ffmpeg: ffmpegLocation, whisper, model},
             percent => setPhase(prev => (prev.name === 'transcribing' ? {...prev, percent} : prev)),
             controller.signal,
           )
-          if (!text) throw new Error('No speech found in this video.')
-          filepath = path.join(OUT_DIR, `${path.parse(filepath).name}.txt`)
-          await fs.writeFile(filepath, renderUntimedTranscript({title: info?.title, url, text}))
+          if (!blocks.length) throw new Error('No speech found in this video.')
+          filepath = await writeTranscript(`${path.parse(filepath).name}.txt`, blocks)
         }
         finish(filepath)
       } catch (error) {
@@ -435,11 +477,25 @@ function AppContent({
         if (controller.signal.aborted) return
         setPhase({name: 'answering', status: 'reading the captions…'})
         const captions = await fetchCaptions({ytdlp: ytdlpRef.current, url}, controller.signal)
-        const blocks = captions ? parseCaptions(captions.vtt) : []
+        let blocks = captions ? parseCaptions(captions.vtt) : []
         if (!blocks.length) {
-          // Whisper would give words but no times, and a fact that cannot point
-          // back at the source is not one (ADR 0001). Better to say so.
-          throw new Error('This source has no captions, so there is nothing an answer could point at.')
+          // No captions. Whisper's own VTT is timed too, so a fact can still
+          // point back at the source (ADR 0001) — it just costs a download and
+          // a few minutes rather than a few seconds.
+          const choice = choices.find(item => item.kind === 'transcript')
+          if (!choice) throw new Error('This source has no audio to recognise.')
+          setPhase({name: 'transcribing', status: 'no captions — recognising the audio instead…'})
+          blocks = await recognise(
+            {ytdlp: ytdlpRef.current, url, choice},
+            {
+              onStatus: status => setPhase({name: 'transcribing', status}),
+              onPercent: percent =>
+                setPhase(prev => (prev.name === 'transcribing' ? {...prev, percent} : prev)),
+            },
+            controller.signal,
+          )
+          if (controller.signal.aborted) return
+          if (!blocks.length) throw new Error('No speech found in this video.')
         }
         setPhase({name: 'answering', status: `asking ${assistant.name}…`})
         const raw = await ask(

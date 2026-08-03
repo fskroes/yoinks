@@ -1,7 +1,14 @@
 /**
- * The platform's own captions, turned into the timed blocks the detector reads.
+ * A VTT, turned into the timed blocks the detector reads.
  *
  * Pure: a VTT string in, blocks out. No I/O, no network, no yt-dlp.
+ *
+ * Both rungs come through here. The platform's captions arrive as VTT, and
+ * whisper writes VTT too when asked (`parseWhisperVtt` in `./transcribe.ts`
+ * strips its noise markers and hands the rest straight to `parseCaptions`), so
+ * a source with no captions produces the same blocks and the same marks as one
+ * with them. That one parser serves both is measured across six sources in
+ * `docs/validation/step-9-whisper-timing.md`.
  *
  * This is a port of `bin/vtt2txt.py` from the external corpus script, which is
  * what produced every transcript behind the 6/6 recorded in

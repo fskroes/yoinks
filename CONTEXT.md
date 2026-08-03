@@ -16,9 +16,9 @@ _Avoid_: Format, download format
 **Transcript**:
 A timed record of what is said in the source media — taken from the platform's own captions
 where they exist, and otherwise recognised from the audio. Every line carries the time it was
-said; without that, an answer cannot be checked and no skippable region can be marked. Audio
-recognised locally is not yet timed, so a source with no captions gives up the words and none
-of the marks.
+said; without that, an answer cannot be checked and no skippable region can be marked. Both
+ways of getting one arrive timed, so a source with no captions gives up nothing but the time it
+takes to recognise it.
 _Avoid_: Caption file, subtitles
 
 **Block**:

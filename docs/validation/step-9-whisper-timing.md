@@ -159,6 +159,38 @@ a source, and so where regions grow to. It did not misbehave: whisper's regions 
 of the captions' on four of six, and where they differ they are *tighter* (source 4 marks one
 `1:44–5:16` where the captions mark `1:35–2:23` plus `2:23–5:33`).
 
+## Both branches were run through the product's own code
+
+The change this measurement cleared is implemented: `transcribe()` returns blocks, both rungs
+converge before `renderTranscript`, and `renderUntimedTranscript` is deleted. Driven through the
+same functions `app.tsx` calls, in the same order:
+
+| Source | Rung | Result |
+|---|---|---|
+| `32iH1WBJbJo` | captions | 22 blocks — `sponsor 1:36–4:48`, `outro 16:34–end` |
+| `32iH1WBJbJo` | whisper, captions skipped on purpose | 20 blocks — `sponsor 0:52–2:26`, `outro 16:11–end` |
+| `1La4QzGeaaQ` | whisper (genuinely has no captions) | *No speech found in this video.* |
+
+The first row is byte-for-byte what `step-6-caption-path.md` recorded for that source, so the
+caption path has not moved. The second reproduces this run's own whisper column exactly, so the
+product path and the prototype path agree. Both write the same artifact: title, url, `[m:ss]` on
+every block, and the marks in place with the phrase that fired them.
+
+**The third row is a source with no speech in it at all** — 8K drone footage over music. Whisper
+writes 24 cues and every one of them is `[Music]`, so there is nothing to stamp and the product
+says so rather than saving an empty file. Step 6 recorded a flat `.txt` for this source; today's
+whisper output would not produce one on the old path either, since `cleanTranscript` also reduced
+noise-only lines to the empty string that raised the same error. The difference is in what whisper
+returns, not in this change.
+
+**What was not exercised: the ink wiring.** Step 6 drove both branches through `node dist/cli.js`
+in a pty. That is not reproduced here — under both `script` and `expect` the picker rendered but
+no keystroke ever reached it, so the selection could not be moved off the first choice. Phases,
+cancel, and the picker are therefore unverified for this change, exactly as the handoff's rule
+that the wiring is not a test seam leaves them. The answer path's new fallback — a caption-less
+source now recognises its audio instead of refusing — is the part this most affects, and it has
+been read but not run.
+
 ## What this is not
 
 It is not a test. It needs the network, YouTube, and whisper.cpp on PATH, so it cannot live in

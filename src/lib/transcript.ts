@@ -61,15 +61,3 @@ export function renderTranscript(opts: {
 
   return `${header(opts)}\n\n${body.join('\n\n')}\n`
 }
-
-/**
- * The fallback artifact: what a source with no captions gets.
- *
- * Whisper returns text with no times in it, so there is nothing to stamp and
- * nothing that can be marked — a skippable region has to be checkable against a
- * time (ADR 0001) and this file has none. Same header, so the two artifacts
- * read as one thing rather than two formats.
- */
-export function renderUntimedTranscript(opts: {title?: string; url: string; text: string}): string {
-  return `${header(opts)}\n\n${opts.text}\n`
-}
