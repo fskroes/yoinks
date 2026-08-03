@@ -32,6 +32,12 @@ A span of a source that is not the source: a sponsor read, a subscribe interrupt
 outro. Marked in time, and always traceable to the line that gave it away.
 _Avoid_: Map, chapter, segment, ad break, filler
 
+**Fact**:
+One thing the source says, in the source's own words where possible, carrying the time it was
+said. The time is not decoration: it is what makes the claim checkable, so a fact whose time
+does not resolve to a block this source has is not shown at all.
+_Avoid_: Finding, point, bullet, citation
+
 **Answer**:
 Facts drawn from a transcript, each pointing back to where in the source media it came from.
 Shown to the person and discarded — an answer is never saved, and so is never an artifact.

@@ -71,6 +71,13 @@ click the theme control in the footer to cycle through `auto`, `light`, and
   the ggml-base model (~142MB) is downloaded to `~/.yoinks/models`, unless one
   already exists in `~/.cache/whisper` or `$YOINKS_WHISPER_MODEL` points at
   another model. That path is not timed, so nothing is marked in it.
+- On the pick screen you can **just start typing to ask about the source**
+  instead of saving it. Yoinks reads the captions and hands them, with your
+  question, to an assistant already on your PATH (Claude Code or Codex) — it
+  never calls a model itself and holds no API key. The answer comes back as
+  facts, each carrying the timestamp it came from, and a fact whose timestamp
+  doesn't match the source is dropped rather than shown. Answers are displayed
+  and thrown away; nothing is saved.
 - The UI is [Ink](https://github.com/vadimdemedes/ink) — React for the
   terminal.
 

@@ -21,7 +21,7 @@ import type {Block, SkippableRegion} from './skippable.js'
  * anything at or below zero because a duration of zero means "unknown" there.
  * A transcript's first block is at 0:00 and has to say so.
  */
-function stamp(seconds: number): string {
+export function stamp(seconds: number): string {
   const hours = Math.floor(seconds / 3600)
   const minutes = Math.floor((seconds % 3600) / 60)
   const rest = String(seconds % 60).padStart(2, '0')

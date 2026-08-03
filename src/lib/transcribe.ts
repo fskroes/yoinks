@@ -5,6 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import {Readable} from 'node:stream'
 import {pipeline} from 'node:stream/promises'
+import {commandWorks} from './command.js'
 import {formatBytes} from './format.js'
 
 const MODEL_DIR = path.join(os.homedir(), '.yoinks', 'models')
@@ -31,20 +32,6 @@ function run(cmd: string, args: string[], signal?: AbortSignal, onStderrLine?: (
       if (code === 0) resolve(stdout)
       else reject(new Error(stderr.trim().split('\n').filter(Boolean).at(-1) || `${cmd} exited with code ${code}`))
     })
-  })
-}
-
-function commandWorks(cmd: string, args: string[]): Promise<boolean> {
-  return new Promise(resolve => {
-    let child
-    try {
-      child = spawn(cmd, args, {stdio: 'ignore', timeout: 10_000})
-    } catch {
-      resolve(false)
-      return
-    }
-    child.on('error', () => resolve(false))
-    child.on('close', code => resolve(code === 0))
   })
 }
 

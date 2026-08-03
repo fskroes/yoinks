@@ -31,8 +31,10 @@ import {
 } from './lib/ytdlp.js'
 import {parseCaptions} from './lib/captions.js'
 import {detectSkippableRegions} from './lib/skippable.js'
-import {renderTranscript, renderUntimedTranscript} from './lib/transcript.js'
+import {renderTranscript, renderUntimedTranscript, stamp} from './lib/transcript.js'
 import {ensureWhisperModel, findWhisper, transcribe} from './lib/transcribe.js'
+import {buildPrompt, parseFacts, type Fact} from './lib/answer.js'
+import {ask, findAssistant} from './lib/assistant.js'
 
 const OUT_DIR = path.join(os.homedir(), 'Downloads')
 const YOINK_BUTTON = 'yoink'
@@ -119,6 +121,8 @@ type Phase =
       refreshing?: boolean
     }
   | {name: 'transcribing'; status: string; percent?: number}
+  | {name: 'answering'; status: string}
+  | {name: 'answered'; question: string; facts: Fact[]}
   | {name: 'done'; filepath: string}
   | {name: 'error'; message: string}
 
@@ -143,6 +147,14 @@ const HINTS: Record<Phase['name'], Array<[string, string]>> = {
   ],
   transcribing: [
     ['esc', 'cancel'],
+    ['^c', 'quit'],
+  ],
+  answering: [
+    ['esc', 'cancel'],
+    ['^c', 'quit'],
+  ],
+  answered: [
+    ['↵', 'back'],
     ['^c', 'quit'],
   ],
   done: [['^c', 'quit']],
@@ -192,6 +204,9 @@ function AppContent({
   const [platform, setPlatform] = useState<Platform>()
   const [info, setInfo] = useState<VideoInfo>()
   const [choices, setChoices] = useState<DownloadChoice[]>([])
+  // the ask input on the picking screen: closed until the person starts typing
+  const [asking, setAsking] = useState(false)
+  const [question, setQuestion] = useState('')
   const ytdlpRef = useRef('')
   const highlightRef = useRef(0) // choice under the cursor, for the ↵ hint click
   const infoJsonRef = useRef<string | undefined>(undefined)
@@ -237,7 +252,18 @@ function AppContent({
     setPlatform(undefined)
     setInfo(undefined)
     setChoices([])
+    setAsking(false)
+    setQuestion('')
     setPhase({name: 'input'})
+  }, [])
+
+  // An answer is shown and thrown away — it is never saved and never an
+  // artifact (CONTEXT.md), so leaving it goes back to the source you asked
+  // about rather than all the way home.
+  const backToPicking = useCallback(() => {
+    setAsking(false)
+    setQuestion('')
+    setPhase({name: 'picking'})
   }, [])
 
   const cancelRun = useCallback(() => {
@@ -252,9 +278,37 @@ function AppContent({
         cycleTheme()
         return
       }
+      // while the ask input is open it owns the keyboard; esc closes it and
+      // hands the picker back rather than abandoning the source
+      if (phase.name === 'picking' && asking) {
+        if (key.escape) {
+          setAsking(false)
+          setQuestion('')
+        }
+        return
+      }
+      // start typing on the picking screen and you are asking about the source
+      if (
+        phase.name === 'picking' &&
+        input &&
+        !key.ctrl &&
+        !key.meta &&
+        !key.escape &&
+        !key.return &&
+        !key.tab &&
+        !key.upArrow &&
+        !key.downArrow
+      ) {
+        setQuestion(input)
+        setAsking(true)
+        return
+      }
       if (key.escape && (phase.name === 'picking' || phase.name === 'error' || phase.name === 'done')) resetToInput()
       if (key.escape && (phase.name === 'probing' || phase.name === 'downloading' || phase.name === 'transcribing'))
         cancelRun()
+      if (key.escape && phase.name === 'answering') cancelRun()
+      if (key.escape && phase.name === 'answered') backToPicking()
+      if (key.return && phase.name === 'answered') backToPicking()
       if (key.return && (phase.name === 'error' || phase.name === 'done')) resetToInput()
     },
     {isActive: Boolean(process.stdin.isTTY)},
@@ -367,9 +421,54 @@ function AppContent({
     })()
   }
 
+  const handleAsk = (asked: string) => {
+    const trimmed = asked.trim()
+    if (!trimmed) return
+    setAsking(false)
+    const controller = new AbortController()
+    abortRef.current = controller
+    setPhase({name: 'answering', status: 'looking for an assistant…'})
+    void (async () => {
+      try {
+        // fail fast on a missing assistant, before fetching anything (ADR 0002)
+        const assistant = await findAssistant()
+        if (controller.signal.aborted) return
+        setPhase({name: 'answering', status: 'reading the captions…'})
+        const captions = await fetchCaptions({ytdlp: ytdlpRef.current, url}, controller.signal)
+        const blocks = captions ? parseCaptions(captions.vtt) : []
+        if (!blocks.length) {
+          // Whisper would give words but no times, and a fact that cannot point
+          // back at the source is not one (ADR 0001). Better to say so.
+          throw new Error('This source has no captions, so there is nothing an answer could point at.')
+        }
+        setPhase({name: 'answering', status: `asking ${assistant.name}…`})
+        const raw = await ask(
+          assistant,
+          buildPrompt({
+            title: info?.title,
+            url,
+            blocks,
+            regions: detectSkippableRegions(blocks),
+            question: trimmed,
+          }),
+          controller.signal,
+        )
+        if (controller.signal.aborted) return
+        setHistory(addToHistory(url))
+        setPhase({name: 'answered', question: trimmed, facts: parseFacts(raw, blocks).facts})
+      } catch (error) {
+        if (controller.signal.aborted) return
+        setPhase({name: 'error', message: error instanceof Error ? error.message : String(error)})
+      }
+    })()
+  }
+
   let hints: Array<[string, string]> = [...HINTS[phase.name], ['^t', `theme:${theme.mode}`]]
   if (phase.name === 'input' && history.length > 0) {
     hints = [hints[0]!, ['↑', 'history'], ...hints.slice(1)]
+  }
+  if (phase.name === 'picking' && asking) {
+    hints = [['↵', 'ask'], ['esc', 'back to saving'], ['^c', 'quit'], ['^t', `theme:${theme.mode}`]]
   }
 
   // Anything a mouse user would expect to press is clickable. Targets are
@@ -378,13 +477,19 @@ function AppContent({
   const hintAction = (key: string): (() => void) | undefined => {
     if (key === '^c') return () => exit()
     if (key === '^t') return cycleTheme
-    if (key === 'esc')
-      return phase.name === 'probing' || phase.name === 'downloading' || phase.name === 'transcribing'
+    if (key === 'esc') {
+      if (phase.name === 'answered') return backToPicking
+      return phase.name === 'probing' ||
+        phase.name === 'downloading' ||
+        phase.name === 'transcribing' ||
+        phase.name === 'answering'
         ? cancelRun
         : resetToInput
+    }
     if (key === '↵') {
       if (phase.name === 'input') return () => handleUrlSubmit(urlInput)
-      if (phase.name === 'picking') return () => handlePick({value: highlightRef.current})
+      if (phase.name === 'picking') return asking ? () => handleAsk(question) : () => handlePick({value: highlightRef.current})
+      if (phase.name === 'answered') return backToPicking
       if (phase.name === 'error' || phase.name === 'done') return resetToInput
     }
     return undefined // ↑↓ / ↑ stay keyboard-only
@@ -414,7 +519,13 @@ function AppContent({
       if (taglineRow > 3 && y - 1 >= taglineRow - 4 && y - 1 <= taglineRow - 2) {
         const span = frameRowSpan(y - 1)
         if (span && x >= span[0] - 1 && x <= span[1] + 1) {
-          if (phase.name === 'probing' || phase.name === 'downloading' || phase.name === 'transcribing') cancelRun()
+          if (
+            phase.name === 'probing' ||
+            phase.name === 'downloading' ||
+            phase.name === 'transcribing' ||
+            phase.name === 'answering'
+          )
+            cancelRun()
           else if (phase.name !== 'input') resetToInput()
           return
         }
@@ -467,6 +578,7 @@ function AppContent({
       )}
 
       {phase.name === 'picking' && platform && (
+        <Box flexDirection="column" alignItems="center">
         <Box width={contentWidth}>
           <Box flexDirection="column" flexGrow={1} flexBasis={0} paddingTop={1} paddingRight={3}>
             {/* wrapped by hand so continuation lines stay flush left —
@@ -496,8 +608,29 @@ function AppContent({
               }))}
               onSelect={handlePick}
               onHighlight={item => (highlightRef.current = item.value)}
+              isFocused={!asking}
             />
           </Panel>
+        </Box>
+          <Gap />
+          {/* An answer is not an artifact, so it stays out of the Save as
+              panel (CONTEXT.md). The input only mounts while asking — its
+              useInput would otherwise swallow the picker's keys. */}
+          {asking ? (
+            <FramedInput title="ask about it" width={boxWidth}>
+              <TextInput
+                value={question}
+                onChange={setQuestion}
+                onSubmit={handleAsk}
+                placeholder="what does he say about…?"
+                width={boxWidth - 6}
+              />
+            </FramedInput>
+          ) : (
+            <Text color={theme.gray} dimColor={theme.dimSecondary}>
+              …or just start typing to ask about it
+            </Text>
+          )}
         </Box>
       )}
 
@@ -579,6 +712,41 @@ function AppContent({
               <Gap />
               <Text color={theme.gray} dimColor={theme.dimSecondary}>transcribing with local whisper…</Text>
             </>
+          )}
+        </Box>
+      )}
+
+      {phase.name === 'answering' && (
+        <Box flexDirection="column" alignItems="center">
+          <Text color={theme.gray} dimColor={theme.dimSecondary}>
+            {info?.title ? `${truncate(info.title, 42)}` : ''}
+          </Text>
+          <Gap />
+          <Text>
+            <Text color={theme.primary}>
+              <Spinner type="dots" />
+            </Text>
+            <Text color={theme.gray} dimColor={theme.dimSecondary}> {phase.status}</Text>
+          </Text>
+        </Box>
+      )}
+
+      {phase.name === 'answered' && (
+        <Box flexDirection="column" width={contentWidth}>
+          <Text color={theme.gray} dimColor={theme.dimSecondary}>? {truncate(phase.question, contentWidth - 2)}</Text>
+          <Gap />
+          {phase.facts.length === 0 ? (
+            <Text color={theme.primary}>The source doesn’t answer that.</Text>
+          ) : (
+            phase.facts.map((fact, index) => (
+              <Box key={index} flexDirection="column" flexShrink={0}>
+                {wrapText(`[${stamp(fact.at)}] ${fact.text}`, contentWidth).map((line, row) => (
+                  <Text key={row} color={row === 0 ? theme.primary : theme.gray} dimColor={row > 0 && theme.dimSecondary}>
+                    {line}
+                  </Text>
+                ))}
+              </Box>
+            ))
           )}
         </Box>
       )}

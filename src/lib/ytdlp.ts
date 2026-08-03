@@ -5,6 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import {Readable} from 'node:stream'
 import {pipeline} from 'node:stream/promises'
+import {commandWorks} from './command.js'
 import {formatBytes} from './format.js'
 
 const YOINKS_DIR = path.join(os.homedir(), '.yoinks', 'bin')
@@ -14,22 +15,6 @@ function ytDlpAssetName(): string {
   if (process.platform === 'win32') return 'yt-dlp.exe'
   if (process.platform === 'darwin') return 'yt-dlp_macos'
   return process.arch === 'arm64' ? 'yt-dlp_linux_aarch64' : 'yt-dlp_linux'
-}
-
-// async on purpose: a spawnSync here blocks the event loop, which freezes
-// ink mid-frame — the user hits enter and sees nothing until it returns
-function commandWorks(cmd: string, args: string[]): Promise<boolean> {
-  return new Promise(resolve => {
-    let child
-    try {
-      child = spawn(cmd, args, {stdio: 'ignore', timeout: 10_000})
-    } catch {
-      resolve(false)
-      return
-    }
-    child.on('error', () => resolve(false))
-    child.on('close', code => resolve(code === 0))
-  })
 }
 
 /**
