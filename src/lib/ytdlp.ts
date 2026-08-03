@@ -146,14 +146,41 @@ const SUB_SUFFIX = /\.[A-Za-z0-9-]+\.vtt$/
  * cover it would mean special cases through the progress and cancel paths,
  * which are the fiddliest code in this file.
  *
- * Returns undefined when the source has no captions in {@link SUB_LANG} — the
- * caller falls back to transcribing the audio. Anything short of a cancel is
- * treated as "no captions" rather than an error: the probe already proved the
- * source resolves, and if it has genuinely gone away the fallback's own
- * download will say so.
+ * Machine-generated captions are asked for first and human-authored ones only
+ * where that found nothing — two passes rather than one call carrying both
+ * flags. Where a source has both, yt-dlp prefers the human-authored track, so a
+ * combined call would silently change which captions every such source gets,
+ * and every number in `docs/validation/step-6-caption-path.md` was measured on
+ * the machine-generated ones. In this order a source that works today still
+ * answers on the first pass and cannot move; the second call is paid for only
+ * by sources that fetch nothing at all today.
+ *
+ * Returns undefined when the source has neither kind of track in
+ * {@link SUB_LANG} — the caller falls back to transcribing the audio.
  */
 export async function fetchCaptions(
   opts: {ytdlp: string; url: string},
+  signal?: AbortSignal,
+): Promise<Captions | undefined> {
+  const generated = await fetchCaptionTrack(opts, '--write-auto-subs', signal)
+  if (generated) return generated
+  // a cancel landing between the two passes would otherwise be noticed only by
+  // the second spawn failing, which is a whole yt-dlp start-up later
+  if (signal?.aborted) throw new Error('Cancelled.')
+  return fetchCaptionTrack(opts, '--write-subs', signal)
+}
+
+/**
+ * One pass: ask yt-dlp for a single kind of track and read back the `.vtt` it
+ * wrote.
+ *
+ * Anything short of a cancel is treated as "no captions" rather than an error:
+ * the probe already proved the source resolves, and if it has genuinely gone
+ * away the fallback's own download will say so.
+ */
+async function fetchCaptionTrack(
+  opts: {ytdlp: string; url: string},
+  flag: '--write-auto-subs' | '--write-subs',
   signal?: AbortSignal,
 ): Promise<Captions | undefined> {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'yoinks-captions-'))
@@ -164,7 +191,7 @@ export async function fetchCaptions(
         [
           opts.url,
           '--skip-download',
-          '--write-auto-subs',
+          flag,
           '--sub-lang',
           SUB_LANG,
           '--sub-format',

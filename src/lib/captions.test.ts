@@ -105,6 +105,56 @@ gives you drop-in sign-in and the free tier is generous
   ])
 })
 
+// Human-authored captions do not roll — each cue carries only its own words —
+// and X wraps every one of them in a custom tag. The overlap strip was written
+// for machine-generated captions and runs on these too, so the thing worth
+// pinning down is that it leaves a genuinely repeated phrase alone. Real
+// punctuation and capitalisation are what save it: the previous cue's tail has
+// to match this cue's head word for word, and `is,` is not `is`.
+const HUMAN = `WEBVTT
+
+00:00:00.000 --> 00:00:02.500
+<X-word-ms ms=359,360,1060,99,120 index=1 character_ranges=0-5,6-10>So the thing about it is,</X-word-ms>
+
+00:00:02.500 --> 00:00:05.000
+<X-word-ms ms=240,120,300 index=2 character_ranges=0-3,4-9>it is genuinely hard. Hard,</X-word-ms>
+
+00:00:05.000 --> 00:00:07.500
+<X-word-ms ms=99,140 index=3 character_ranges=0-4>hard in a way you don't expect.</X-word-ms>
+`
+
+test('keeps a phrase human-authored captions repeat across a cue boundary', () => {
+  assert.deepEqual(parseCaptions(HUMAN), [
+    {start: 0, text: "So the thing about it is, it is genuinely hard. Hard, hard in a way you don't expect."},
+  ])
+})
+
+test("strips X's custom cue tag", () => {
+  const [block] = parseCaptions(HUMAN)
+
+  assert.equal(/X-word-ms|character_ranges|index=/.test(block.text), false)
+})
+
+// The residual cost of running the overlap strip over human-authored captions,
+// recorded
+// rather than fixed: a bare repeat with nothing to tell the two copies apart
+// loses one. The parser cannot know which kind of track it is reading, and the
+// strip is what every number in docs/validation was measured through — so this
+// stays, and this test is here to make it visible if anyone widens it.
+test('a bare unpunctuated repeat across a cue boundary loses one copy', () => {
+  assert.deepEqual(
+    parseCaptions(`WEBVTT
+
+00:00:00.000 --> 00:00:02.000
+it was very very
+
+00:00:02.000 --> 00:00:04.000
+very good
+`),
+    [{start: 0, text: 'it was very very good'}],
+  )
+})
+
 test('a source with no cues is no blocks, not one empty block', () => {
   assert.deepEqual(parseCaptions('WEBVTT\nKind: captions\nLanguage: en\n'), [])
   assert.deepEqual(parseCaptions(''), [])
