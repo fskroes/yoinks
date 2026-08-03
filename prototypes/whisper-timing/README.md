@@ -74,6 +74,12 @@ would actually get, not the best whisper can do.
 
 ## Run it
 
+**Nothing to run as of 2026-08-03 — `run.ts` and `npm run prototype:whisper-timing` are deleted;
+see [Result](#result--2026-08-03-it-transfers-and-the-kill-condition-as-written-was-measuring-the-wrong-thing).
+Kept as the record of what was run to produce the results below.**
+
+Kept unedited below, as the record of how it was run:
+
 ```
 npm run prototype:whisper-timing              # all six
 npm run prototype:whisper-timing -- 32iH1WBJbJo   # one or more IDs
@@ -109,3 +115,12 @@ Risks 2 and 3 held. The starts run earlier on whisper (blocks average ~50s again
 
 The prototype code stays until the change it clears is shipped; delete it then, as
 `prototypes/map` was.
+
+**`run.ts` was deleted on 2026-08-03**, along with `npm run prototype:whisper-timing`, once the
+change it cleared shipped — the rule directly above, applied. The six-source table in
+[`docs/validation/step-9-whisper-timing.md`](../../docs/validation/step-9-whisper-timing.md) is
+this script's output and is still what ADR 0004 cites, so the measurement is not reproducible from
+the tree any more; git has the script at `994e397`, and re-measuring means restoring it from there.
+Three of the six sources were re-run through the product's own path, one of them on the whisper
+rung, and that agreed with this script exactly — which is the reason the script itself is no longer
+worth keeping next to the code it was checking. What is kept is the evidence: this file.
