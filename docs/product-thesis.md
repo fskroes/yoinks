@@ -2,10 +2,13 @@
 
 Working thesis about what a person wants after Yoinks produces a transcript. Provisional — see [Evidence](#evidence).
 
-Uses the vocabulary in `CONTEXT.md`: **source URL**, **artifact**, **transcript**, **skippable
-region**, **answer**. Constrained by [ADR 0001](adr/0001-facts-never-conclusions.md),
-[ADR 0002](adr/0002-drive-an-assistant-on-path.md) and
-[ADR 0003](adr/0003-skippable-regions-not-a-map.md).
+Uses the vocabulary in `CONTEXT.md`: **source URL**, **artifact**, **transcript**, **block**,
+**skippable region**, **fact**, **answer**. Constrained by
+[ADR 0001](adr/0001-facts-never-conclusions.md),
+[ADR 0002](adr/0002-drive-an-assistant-on-path.md),
+[ADR 0003](adr/0003-skippable-regions-not-a-map.md),
+[ADR 0004](adr/0004-the-transcript-artifact-is-timed-and-marked.md) and
+[ADR 0005](adr/0005-a-fact-that-cannot-be-checked-is-not-shown.md).
 
 Supersedes the 2026-07-25 corpus/diff thesis, which was tested and largely falsified. See
 [What changed and why](#what-changed-and-why).
@@ -60,8 +63,25 @@ The person will trust an answer without reading the transcript, but will want to
 it. So: hidden by default, reachable at the specific line that provoked the doubt. Every
 claim carries a timestamp; the timestamp is the affordance for doubt, not decoration.
 
-**3. Depth is content-dependent.**
-There is no correct answer length. Gist expands to detail on demand, one step at a time.
+**3. Struck 2026-08-03. It said depth is content-dependent.**
+*"There is no correct answer length. Gist expands to detail on demand, one step at a time."*
+Nothing expands. An answer is at most five facts and then it is over.
+
+It is struck rather than left standing as an unbuilt intention, for the same reason the gate in
+[Measure](#measure) was: a constraint nothing is going to satisfy lets the document keep the
+posture of a plan in flight. Two things argue against it and nothing argues for it.
+
+Its origin is a stated-preference answer — *"hard to measure; depends on the content"*
+(`SESSION.md` §3, Q3) — and that is the category the diary beat every time the two disagreed.
+And the one measurement that touched it went the other way: uncapped, the assistant returned 48
+facts across four questions, 14 for one of them, every citation resolving. A screenful of quotes
+is the wall of text this document's Measure exists to keep off a person's clipboard, so the cap
+is not a limitation on the answer, it is most of what makes it one
+(`docs/validation/step-7-answering.md`).
+
+Expansion remains a reasonable feature and this does not argue against building it. It is not a
+constraint: step 7 measured brevity and picked a number, and nothing has measured demand for a
+second step.
 
 **4. Nothing accumulates about the content.**
 No library of transcripts, no folders, no tags, no archive, nothing retained about what any

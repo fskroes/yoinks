@@ -25,6 +25,10 @@ about"), which is a summary request wearing a question mark.
 
 ## Run it
 
+**Nothing to run as of 2026-08-03 — the code and the script are deleted; see
+[Status](#status--2026-08-01-answered-and-half-of-it-is-being-kept). Kept as the record of what
+was run to produce the results below.**
+
 ```
 npm run prototype:map -- <transcript.md | youtube-url>
 npm run prototype:map -- <...> --strict    # times + skippable regions only
@@ -149,12 +153,21 @@ Full record, both corrections, and caveats in `recording.md`. Nothing here unfre
 - **`skipCues` / `growSkips` do ship**, promoted into `src/` under the name **skippable
   region**. The word *map* is retired from the product and from `CONTEXT.md`.
 
+**The code was deleted on 2026-08-03**, along with `npm run prototype:map`. `skipCues` and
+`growSkips` live in `src/lib/skippable.ts` and were the only part that shipped; keeping a second
+copy of a promoted detector next to a `topicalBoundaries` that ADR 0001 rules out is two ways to
+be wrong. The numbers below were re-measured through the product's own path in
+[`step-6-caption-path.md`](../../docs/validation/step-6-caption-path.md), so nothing cites the
+deleted files for a result. What is kept is the evidence: this file and `recording.md`, both
+cited by ADR 0003 and ADR 0004. Git has the rest.
+
 Everything below this line is the record as written on 2026-07-29/30, kept unedited. Read it as
 history, not as the current state.
 
 ## Files
 
-- `build-map.ts` — the keeper. Pure `transcript -> map`. No I/O, no terminal, no model.
-- `render.ts` — throwaway. ANSI, one frame.
-- `cli.ts` — throwaway shell.
-- `recording.md` — the reading sheet. Fill it **before** watching.
+As written on 2026-07-29/30 this listed `build-map.ts` ("the keeper. Pure `transcript -> map`"),
+`render.ts` and `cli.ts`. All three are deleted — see Status above. What remains:
+
+- `README.md` — this file. The question, the kill condition, and both results.
+- `recording.md` — the reading sheet, filled before watching, with both corrections.
