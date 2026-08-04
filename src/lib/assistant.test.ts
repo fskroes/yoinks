@@ -41,13 +41,22 @@ test('codex: a turn is the agent message and the thread id, ignoring other event
   })
 })
 
-// Verified live: resuming returns the same conversation id, so a chain of
-// follow-ups keeps riding one conversation rather than forking per turn.
-test('every known assistant can phrase both a first turn and a resumed turn', () => {
-  for (const assistant of KNOWN) {
-    assert.ok(assistant.argsFor('q').includes('q'), assistant.name)
-    const resumed = assistant.resumeArgsFor('conv-id', 'q')
-    assert.ok(resumed.includes('conv-id'), assistant.name)
-    assert.ok(resumed.includes('q'), assistant.name)
-  }
+// The prompt travels on stdin, so arguments carry only flags and the handle —
+// that is what removed the OS argument-size ceiling on long transcripts.
+// These are the exact forms verified live against both binaries.
+test('claude: both turns are phrased in the verified stdin form', () => {
+  assert.deepEqual(claude.argsFor(), ['-p', '--output-format', 'json'])
+  assert.deepEqual(claude.resumeArgsFor('conv-id'), ['-p', '--resume', 'conv-id', '--output-format', 'json'])
+})
+
+test('codex: both turns are phrased in the verified stdin form, prompt as "-"', () => {
+  assert.deepEqual(codex.argsFor(), ['exec', '--json', '--skip-git-repo-check', '-'])
+  assert.deepEqual(codex.resumeArgsFor('conv-id'), [
+    'exec',
+    'resume',
+    'conv-id',
+    '-',
+    '--json',
+    '--skip-git-repo-check',
+  ])
 })

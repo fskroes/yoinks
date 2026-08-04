@@ -26,10 +26,10 @@ export type Turn = {
 export type Assistant = {
   name: string
   command: string
-  /** How this CLI is asked a first question and made to answer without a terminal. */
-  argsFor: (prompt: string) => string[]
+  /** How this CLI is asked a first question and made to answer without a terminal. The prompt itself travels on stdin — see `ask`. */
+  argsFor: () => string[]
   /** How this CLI is asked a follow-up inside an existing conversation. */
-  resumeArgsFor: (conversation: string, prompt: string) => string[]
+  resumeArgsFor: (conversation: string) => string[]
   /** How this CLI's machine output becomes a Turn. */
   parse: (stdout: string) => Turn
 }
@@ -46,8 +46,8 @@ export const KNOWN: Assistant[] = [
   {
     name: 'Claude Code',
     command: 'claude',
-    argsFor: prompt => ['-p', prompt, '--output-format', 'json'],
-    resumeArgsFor: (conversation, prompt) => ['-p', '--resume', conversation, prompt, '--output-format', 'json'],
+    argsFor: () => ['-p', '--output-format', 'json'],
+    resumeArgsFor: conversation => ['-p', '--resume', conversation, '--output-format', 'json'],
     parse: stdout => {
       const reply = JSON.parse(stdout) as {result?: string; session_id?: string}
       if (typeof reply.result !== 'string' || !reply.session_id) {
@@ -59,8 +59,8 @@ export const KNOWN: Assistant[] = [
   {
     name: 'Codex',
     command: 'codex',
-    argsFor: prompt => ['exec', '--json', '--skip-git-repo-check', prompt],
-    resumeArgsFor: (conversation, prompt) => ['exec', 'resume', conversation, prompt, '--json', '--skip-git-repo-check'],
+    argsFor: () => ['exec', '--json', '--skip-git-repo-check', '-'],
+    resumeArgsFor: conversation => ['exec', 'resume', conversation, '-', '--json', '--skip-git-repo-check'],
     parse: stdout => {
       let conversation = ''
       const texts: string[] = []
@@ -100,12 +100,10 @@ export async function findAssistant(): Promise<Assistant> {
  * Hand the assistant the prompt and take back the turn. Pass the conversation
  * from a previous turn to continue it instead of starting over.
  *
- * The prompt travels as an argument rather than on stdin, because that is the
- * one form both CLIs above were verified against — stdin is left closed so a
- * CLI that reads it when piped (codex does) cannot hang waiting for more. A
- * source long enough to blow past the OS argument limit (roughly four hours of
- * speech on macOS) fails with E2BIG, which is translated below rather than
- * left as a spawn error.
+ * The prompt travels on stdin — claude reads it with no positional argument,
+ * codex when the prompt argument is `-` (both verified live, first turn and
+ * resume). Arguments carry only flags and the conversation handle, so no
+ * transcript can hit the OS argument-size limit however long the source runs.
  */
 export function ask(
   assistant: Assistant,
@@ -113,22 +111,17 @@ export function ask(
   opts?: {conversation?: string; signal?: AbortSignal},
 ): Promise<Turn> {
   return new Promise((resolve, reject) => {
-    const args = opts?.conversation
-      ? assistant.resumeArgsFor(opts.conversation, prompt)
-      : assistant.argsFor(prompt)
-    let child
-    try {
-      child = spawn(assistant.command, args, {signal: opts?.signal, stdio: ['ignore', 'pipe', 'pipe']})
-    } catch (error) {
-      reject(tooLong(error) ?? error)
-      return
-    }
+    const args = opts?.conversation ? assistant.resumeArgsFor(opts.conversation) : assistant.argsFor()
+    const child = spawn(assistant.command, args, {signal: opts?.signal, stdio: ['pipe', 'pipe', 'pipe']})
 
     let stdout = ''
     let stderr = ''
     child.stdout.on('data', chunk => (stdout += chunk))
     child.stderr.on('data', chunk => (stderr += chunk))
-    child.on('error', error => reject(tooLong(error) ?? error))
+    child.on('error', reject)
+    // EPIPE if the child dies before reading — the close handler reports that.
+    child.stdin.on('error', () => {})
+    child.stdin.end(prompt)
     child.on('close', code => {
       // stderr is not a failure signal here: assistants print hook, plugin and
       // telemetry chatter to it on a completely successful run. Only the exit
@@ -145,10 +138,4 @@ export function ask(
       reject(new Error(last || `${assistant.name} exited with code ${code}.`))
     })
   })
-}
-
-function tooLong(error: unknown): Error | undefined {
-  return (error as {code?: string} | undefined)?.code === 'E2BIG'
-    ? new Error('This source is too long to ask about in one go.')
-    : undefined
 }
