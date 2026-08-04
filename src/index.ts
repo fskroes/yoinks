@@ -56,8 +56,8 @@ export {renderTranscript, stamp} from './lib/transcript.js'
 
 // Asking about a source. `parseFacts` is the invariant, not a formatter: it
 // drops any fact whose timestamp is not a block this source has.
-export {buildPrompt, parseFacts, type Fact, type ParsedAnswer} from './lib/answer.js'
-export {findAssistant, ask, type Assistant} from './lib/assistant.js'
+export {buildExpansionPrompt, buildFollowUpPrompt, buildPrompt, parseFacts, type Fact, type ParsedAnswer} from './lib/answer.js'
+export {findAssistant, ask, type Assistant, type Turn} from './lib/assistant.js'
 
 // Which platform a url belongs to, and whether it is one at all.
 export {detectPlatform, isProbablyUrl, type Platform} from './lib/platforms.js'

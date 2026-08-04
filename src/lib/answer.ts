@@ -17,7 +17,7 @@
  */
 
 import type {Block, SkippableRegion} from './skippable.js'
-import {renderTranscript} from './transcript.js'
+import {renderTranscript, stamp} from './transcript.js'
 
 export type Fact = {
   /** Seconds into the source — always the start of a block this source has. */
@@ -59,6 +59,29 @@ export function buildPrompt(opts: {
     'Transcript:',
     '',
     renderTranscript({title: opts.title, url: opts.url, blocks: opts.blocks, regions: opts.regions}),
+  ].join('\n')
+}
+
+/**
+ * Follow-ups ride the conversation (ADR 0006): the assistant already holds the
+ * transcript and the rules from the first turn, so neither prompt below sends
+ * them again — that saving is the whole point of resuming.
+ */
+export function buildExpansionPrompt(fact: Fact): string {
+  return [
+    `Expand on this fact: [${stamp(fact.at)}] ${fact.text}`,
+    '',
+    'Give more facts from the transcript near that time and about its subject only.',
+    'Same rules as before: every line is one fact beginning with its exact timestamp,',
+    'at most 5, facts only.',
+  ].join('\n')
+}
+
+export function buildFollowUpPrompt(question: string): string {
+  return [
+    `Question: ${question}`,
+    '',
+    'Answer from the same transcript, under the same rules as before.',
   ].join('\n')
 }
 

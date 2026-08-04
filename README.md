@@ -77,7 +77,8 @@ click the theme control in the footer to cycle through `auto`, `light`, and
   never calls a model itself and holds no API key. The answer comes back as
   facts, each carrying the timestamp it came from, and a fact whose timestamp
   doesn't match the source is dropped rather than shown. Answers are displayed
-  and thrown away; nothing is saved.
+  and thrown away — yoinks saves nothing. Follow-up questions continue a
+  conversation your assistant remembers, the same way any chat with it does.
 - The UI is [Ink](https://github.com/vadimdemedes/ink) — React for the
   terminal.
 
