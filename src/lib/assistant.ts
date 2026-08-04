@@ -32,6 +32,13 @@ export type Assistant = {
   resumeArgsFor: (conversation: string) => string[]
   /** How this CLI's machine output becomes a Turn. */
   parse: (stdout: string) => Turn
+  /**
+   * How one line of this CLI's output becomes a piece of the answer's text as
+   * it arrives, or nothing. Claude streams true text deltas; codex emits each
+   * message whole, so its delta is the full message plus the newline that
+   * completes its last line.
+   */
+  delta: (line: string) => string | undefined
 }
 
 /**
@@ -42,18 +49,31 @@ export type Assistant = {
  * changes directory, so this holds), and codex refuses to run outside a
  * trusted directory unless the git check is skipped.
  */
+const CLAUDE_STREAM_FORM = ['--output-format', 'stream-json', '--include-partial-messages', '--verbose']
+
 export const KNOWN: Assistant[] = [
   {
     name: 'Claude Code',
     command: 'claude',
-    argsFor: () => ['-p', '--output-format', 'json'],
-    resumeArgsFor: conversation => ['-p', '--resume', conversation, '--output-format', 'json'],
+    argsFor: () => ['-p', ...CLAUDE_STREAM_FORM],
+    resumeArgsFor: conversation => ['-p', '--resume', conversation, ...CLAUDE_STREAM_FORM],
+    // The stream ends with one `result` line carrying the whole answer — the
+    // same shape `--output-format json` used to emit on its own.
     parse: stdout => {
-      const reply = JSON.parse(stdout) as {result?: string; session_id?: string}
-      if (typeof reply.result !== 'string' || !reply.session_id) {
-        throw new Error('Claude Code replied in a shape Yoinks does not recognise.')
+      for (const line of stdout.split('\n')) {
+        const event = parseLine(line) as {type?: string; result?: string; session_id?: string}
+        if (event?.type !== 'result') continue
+        if (typeof event.result !== 'string' || !event.session_id) break
+        return {text: event.result, conversation: event.session_id}
       }
-      return {text: reply.result, conversation: reply.session_id}
+      throw new Error('Claude Code replied in a shape Yoinks does not recognise.')
+    },
+    delta: line => {
+      const event = parseLine(line) as
+        | {type?: string; event?: {type?: string; delta?: {type?: string; text?: string}}}
+        | undefined
+      if (event?.type !== 'stream_event' || event.event?.delta?.type !== 'text_delta') return undefined
+      return event.event.delta.text
     },
   },
   {
@@ -65,17 +85,10 @@ export const KNOWN: Assistant[] = [
       let conversation = ''
       const texts: string[] = []
       for (const line of stdout.split('\n')) {
-        if (!line.trim()) continue
-        let event
-        try {
-          event = JSON.parse(line) as {
-            type?: string
-            thread_id?: string
-            item?: {type?: string; text?: string}
-          }
-        } catch {
-          continue
-        }
+        const event = parseLine(line) as
+          | {type?: string; thread_id?: string; item?: {type?: string; text?: string}}
+          | undefined
+        if (!event) continue
         if (event.type === 'thread.started' && event.thread_id) conversation = event.thread_id
         if (event.item?.type === 'agent_message' && event.item.text) texts.push(event.item.text)
       }
@@ -84,8 +97,23 @@ export const KNOWN: Assistant[] = [
       }
       return {text: texts.join('\n'), conversation}
     },
+    delta: line => {
+      const event = parseLine(line) as {item?: {type?: string; text?: string}} | undefined
+      if (event?.item?.type !== 'agent_message' || !event.item.text) return undefined
+      return `${event.item.text}\n`
+    },
   },
 ]
+
+/** One JSONL line to its event, or nothing for blanks and non-JSON chatter. */
+function parseLine(line: string): unknown {
+  if (!line.trim()) return undefined
+  try {
+    return JSON.parse(line)
+  } catch {
+    return undefined
+  }
+}
 
 export async function findAssistant(): Promise<Assistant> {
   for (const assistant of KNOWN) {
@@ -108,7 +136,7 @@ export async function findAssistant(): Promise<Assistant> {
 export function ask(
   assistant: Assistant,
   prompt: string,
-  opts?: {conversation?: string; signal?: AbortSignal},
+  opts?: {conversation?: string; signal?: AbortSignal; onDelta?: (text: string) => void},
 ): Promise<Turn> {
   return new Promise((resolve, reject) => {
     const args = opts?.conversation ? assistant.resumeArgsFor(opts.conversation) : assistant.argsFor()
@@ -116,7 +144,22 @@ export function ask(
 
     let stdout = ''
     let stderr = ''
-    child.stdout.on('data', chunk => (stdout += chunk))
+    // Decode as text before splitting, so a multibyte character straddling
+    // two chunks cannot corrupt the line it lands in.
+    child.stdout.setEncoding('utf8')
+    // The assistant's output is JSONL, so a line is the unit a delta can be
+    // read from — `pending` holds the partial line between chunks.
+    let pending = ''
+    child.stdout.on('data', chunk => {
+      stdout += chunk
+      if (!opts?.onDelta) return
+      const lines = (pending + chunk).split('\n')
+      pending = lines.pop()!
+      for (const line of lines) {
+        const text = assistant.delta(line)
+        if (text) opts.onDelta(text)
+      }
+    })
     child.stderr.on('data', chunk => (stderr += chunk))
     child.on('error', reject)
     // EPIPE if the child dies before reading — the close handler reports that.

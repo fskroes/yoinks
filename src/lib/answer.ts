@@ -85,6 +85,22 @@ export function buildFollowUpPrompt(question: string): string {
   ].join('\n')
 }
 
+/**
+ * The streaming face of {@link parseFacts}: feed it chunks as they arrive and
+ * it hands back each fact the moment its line is complete — and not a moment
+ * before, because a half-arrived line has not yet earned the gate. The gate
+ * itself is the same one: a fact renders only once its whole line has passed
+ * parseFacts.
+ */
+export function factStream(blocks: Block[]): (chunk: string) => Fact[] {
+  let tail = ''
+  return chunk => {
+    const lines = (tail + chunk).split('\n')
+    tail = lines.pop()!
+    return lines.flatMap(line => parseFacts(line, blocks).facts)
+  }
+}
+
 export function parseFacts(raw: string, blocks: Block[]): ParsedAnswer {
   const recorded = new Set(blocks.map(block => block.start))
   const facts: Fact[] = []

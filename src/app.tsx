@@ -33,7 +33,7 @@ import {parseCaptions} from './lib/captions.js'
 import {detectSkippableRegions, type Block} from './lib/skippable.js'
 import {renderTranscript, stamp} from './lib/transcript.js'
 import {ensureWhisperModel, findWhisper, transcribe} from './lib/transcribe.js'
-import {buildExpansionPrompt, buildFollowUpPrompt, buildPrompt, parseFacts, type Fact} from './lib/answer.js'
+import {buildExpansionPrompt, buildFollowUpPrompt, buildPrompt, factStream, parseFacts, type Fact} from './lib/answer.js'
 import {ask, findAssistant, type Turn} from './lib/assistant.js'
 
 const OUT_DIR = path.join(os.homedir(), 'Downloads')
@@ -163,7 +163,7 @@ type Phase =
       refreshing?: boolean
     }
   | {name: 'transcribing'; status: string; percent?: number}
-  | {name: 'answering'; status: string}
+  | {name: 'answering'; status: string; facts: Fact[]}
   | {name: 'answered'; question: string; facts: Fact[]}
   | {name: 'done'; filepath: string}
   | {name: 'error'; message: string}
@@ -516,13 +516,17 @@ function AppContent({
     setAsking(false)
     const controller = new AbortController()
     abortRef.current = controller
-    setPhase({name: 'answering', status: 'looking for an assistant…'})
+    setPhase({name: 'answering', status: 'looking for an assistant…', facts: []})
     void (async () => {
       try {
         const assistant = await findAssistant()
         if (controller.signal.aborted) return
-        setPhase({name: 'answering', status: `asking ${assistant.name}…`})
-        const turn = await ask(assistant, prompt, {conversation, signal: controller.signal})
+        setPhase({name: 'answering', status: `asking ${assistant.name}…`, facts: []})
+        const turn = await ask(assistant, prompt, {
+          conversation,
+          signal: controller.signal,
+          onDelta: streamFactsInto(blocks, controller.signal),
+        })
         if (controller.signal.aborted) return
         landTurn(shownAs, turn, blocks)
       } catch (error) {
@@ -531,6 +535,22 @@ function AppContent({
       }
     })()
     return true
+  }
+
+  // Streaming: each fact appears the moment its line completes and passes the
+  // same gate as ever (ADR 0005) — never a half-arrived line. The landed turn
+  // still reparses the whole text, so the preview can only ever be a prefix of
+  // the answer, not a different one.
+  // The signal guard matters: a delta already queued from a cancelled turn's
+  // child must not leak its facts into whatever the screen shows next.
+  const streamFactsInto = (blocks: Block[], signal: AbortSignal) => {
+    const push = factStream(blocks)
+    return (text: string) => {
+      if (signal.aborted) return
+      const fresh = push(text)
+      if (!fresh.length) return
+      setPhase(prev => (prev.name === 'answering' ? {...prev, facts: [...prev.facts, ...fresh]} : prev))
+    }
   }
 
   // Every turn lands the same way: keep the handle, re-gate the facts against
@@ -553,13 +573,13 @@ function AppContent({
     setAsking(false)
     const controller = new AbortController()
     abortRef.current = controller
-    setPhase({name: 'answering', status: 'looking for an assistant…'})
+    setPhase({name: 'answering', status: 'looking for an assistant…', facts: []})
     void (async () => {
       try {
         // fail fast on a missing assistant, before fetching anything (ADR 0002)
         const assistant = await findAssistant()
         if (controller.signal.aborted) return
-        setPhase({name: 'answering', status: 'reading the captions…'})
+        setPhase({name: 'answering', status: 'reading the captions…', facts: []})
         const captions = await fetchCaptions({ytdlp: ytdlpRef.current, url}, controller.signal)
         let blocks = captions ? parseCaptions(captions.vtt) : []
         if (!blocks.length) {
@@ -581,7 +601,7 @@ function AppContent({
           if (controller.signal.aborted) return
           if (!blocks.length) throw new Error('No speech found in this video.')
         }
-        setPhase({name: 'answering', status: `asking ${assistant.name}…`})
+        setPhase({name: 'answering', status: `asking ${assistant.name}…`, facts: []})
         const turn = await ask(
           assistant,
           buildPrompt({
@@ -591,7 +611,7 @@ function AppContent({
             regions: detectSkippableRegions(blocks),
             question: trimmed,
           }),
-          {signal: controller.signal},
+          {signal: controller.signal, onDelta: streamFactsInto(blocks, controller.signal)},
         )
         if (controller.signal.aborted) return
         setHistory(addToHistory(url))
@@ -875,17 +895,34 @@ function AppContent({
       )}
 
       {phase.name === 'answering' && (
-        <Box flexDirection="column" alignItems="center">
-          <Text color={theme.gray} dimColor={theme.dimSecondary}>
-            {info?.title ? `${truncate(info.title, 42)}` : ''}
-          </Text>
-          <Gap />
-          <Text>
-            <Text color={theme.primary}>
-              <Spinner type="dots" />
+        <Box flexDirection="column" width={contentWidth}>
+          <Box flexDirection="column" alignItems="center">
+            <Text color={theme.gray} dimColor={theme.dimSecondary}>
+              {info?.title ? `${truncate(info.title, 42)}` : ''}
             </Text>
-            <Text color={theme.gray} dimColor={theme.dimSecondary}> {phase.status}</Text>
-          </Text>
+            <Gap />
+          </Box>
+          {/* facts land here as their lines complete — the same rows the
+              answered screen will show, minus the cursor */}
+          {phase.facts.map((fact, index) => (
+            <Box key={index} flexDirection="column" flexShrink={0}>
+              {wrapText(`[${stamp(fact.at)}] ${fact.text}`, contentWidth - 2).map((line, row) => (
+                <Text key={row} color={row === 0 ? theme.primary : theme.gray} dimColor={row > 0 && theme.dimSecondary}>
+                  {'  '}
+                  {line}
+                </Text>
+              ))}
+            </Box>
+          ))}
+          {phase.facts.length > 0 && <Gap />}
+          <Box alignItems="center" flexDirection="column">
+            <Text>
+              <Text color={theme.primary}>
+                <Spinner type="dots" />
+              </Text>
+              <Text color={theme.gray} dimColor={theme.dimSecondary}> {phase.status}</Text>
+            </Text>
+          </Box>
         </Box>
       )}
 

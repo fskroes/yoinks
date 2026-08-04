@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import {buildExpansionPrompt, buildFollowUpPrompt, buildPrompt, parseFacts} from './answer.js'
+import {buildExpansionPrompt, buildFollowUpPrompt, buildPrompt, factStream, parseFacts} from './answer.js'
 
 const BLOCKS = [
   {start: 0, text: 'the thing about the borrow checker is that it moves the error earlier'},
@@ -117,4 +117,19 @@ test('a fact is trimmed of the space after its stamp', () => {
   const {facts} = parseFacts('[0:00]     padded out', BLOCKS)
 
   assert.deepEqual(facts, [{at: 0, text: 'padded out'}])
+})
+
+// Streaming: a fact renders only when its line is complete and has passed the
+// same gate as any other fact (ADR 0005) — a half-arrived line shows nothing.
+test('factStream emits a fact only when its line completes and checks out', () => {
+  const push = factStream(BLOCKS)
+
+  assert.deepEqual(push('[3:56] Opus draws 100%'), [])
+  assert.deepEqual(push(' of the weekly limit\n[9:'), [
+    {at: 236, text: 'Opus draws 100% of the weekly limit'},
+  ])
+  // an uncheckable fact and a bare line die at the same gate as ever
+  assert.deepEqual(push('99] invented\nno stamp\n[0:00] the borrow checker moves the error earlier\n'), [
+    {at: 0, text: 'the borrow checker moves the error earlier'},
+  ])
 })
