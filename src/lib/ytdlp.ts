@@ -1,5 +1,5 @@
 import {spawn, type ChildProcess} from 'node:child_process'
-import {createWriteStream} from 'node:fs'
+import {accessSync, constants, createWriteStream} from 'node:fs'
 import fs from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
@@ -7,6 +7,7 @@ import {Readable} from 'node:stream'
 import {pipeline} from 'node:stream/promises'
 import {commandWorks} from './command.js'
 import {formatBytes} from './format.js'
+import {detectPlatform} from './platforms.js'
 
 const YOINKS_DIR = path.join(os.homedir(), '.yoinks', 'bin')
 const RELEASE_BASE = 'https://github.com/yt-dlp/yt-dlp/releases/latest/download'
@@ -88,9 +89,37 @@ export type ProbeResult = {
   infoJsonPath: string
 }
 
+/**
+ * Instagram rejects anonymous requests some of the time; a logged-in Safari
+ * session makes that rare. Instagram only: the other platforms answer
+ * anonymously, and reading Safari's cookie store makes macOS prompt for Full
+ * Disk Access, a cost worth paying only where it buys something.
+ *
+ * Without Full Disk Access yt-dlp fails hard on the unreadable cookie store,
+ * which would take down downloads that work anonymously — so the flag is only
+ * passed when the store is actually readable.
+ */
+function cookieArgs(url: string): string[] {
+  if (process.platform !== 'darwin') return []
+  if (detectPlatform(url).key !== 'instagram') return []
+  const stores = [
+    path.join(os.homedir(), 'Library/Containers/com.apple.Safari/Data/Library/Cookies/Cookies.binarycookies'),
+    path.join(os.homedir(), 'Library/Cookies/Cookies.binarycookies'),
+  ]
+  const readable = stores.some(store => {
+    try {
+      accessSync(store, constants.R_OK)
+      return true
+    } catch {
+      return false
+    }
+  })
+  return readable ? ['--cookies-from-browser', 'safari'] : []
+}
+
 export async function probe(ytdlp: string, url: string, signal?: AbortSignal): Promise<ProbeResult> {
   const stdout = await new Promise<string>((resolve, reject) => {
-    const child = spawn(ytdlp, ['-J', '--no-playlist', '--no-warnings', url], {signal})
+    const child = spawn(ytdlp, ['-J', '--no-playlist', '--no-warnings', ...cookieArgs(url), url], {signal})
     let out = ''
     let stderr = ''
     child.stdout.on('data', chunk => (out += chunk))
@@ -190,6 +219,7 @@ async function fetchCaptionTrack(
         opts.ytdlp,
         [
           opts.url,
+          ...cookieArgs(opts.url),
           '--skip-download',
           flag,
           '--sub-lang',
@@ -331,6 +361,7 @@ export function download(
 ): Promise<string> {
   const args = [
     ...(opts.infoJsonPath ? ['--load-info-json', opts.infoJsonPath] : [opts.url]),
+    ...cookieArgs(opts.url),
     ...opts.choice.args,
     '--no-playlist',
     '--no-warnings',
