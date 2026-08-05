@@ -10,8 +10,6 @@ type Props = {
   placeholder?: string
   /** visible columns — text scrolls horizontally to keep the cursor in view */
   width?: number
-  /** newest-first entries recalled with ↑/↓ */
-  history?: string[]
   /** when a paste into an empty field satisfies this, submit immediately */
   submitOnPaste?: (value: string) => boolean
   /** tab pressed — accept a suggestion, etc. */
@@ -35,8 +33,8 @@ const wordRight = (text: string, from: number) => {
 /**
  * Single-line editor with readline-style keys ink-text-input lacks:
  * word jumps (⌥←/→, ⌥b/f), word delete (⌥⌫, ^w), kill line (^u/^k),
- * home/end (^a/^e), shift+arrow selection, ↑/↓ history recall,
- * paste auto-submit, and horizontal scrolling.
+ * home/end (^a/^e), shift+arrow selection, paste auto-submit,
+ * and horizontal scrolling.
  */
 export function TextInput({
   value,
@@ -44,15 +42,12 @@ export function TextInput({
   onSubmit,
   placeholder = '',
   width = 40,
-  history = [],
   submitOnPaste,
   onTab,
 }: Props) {
   const theme = useTheme()
   const [cursorState, setCursorState] = useState(value.length)
   const [anchorState, setAnchorState] = useState<number | null>(null)
-  const [historyPos, setHistoryPos] = useState<number | null>(null)
-  const draftRef = useRef('')
   const offsetRef = useRef(0)
 
   // the parent can reset value (e.g. after submit) — clamp stale positions
@@ -73,14 +68,7 @@ export function TextInput({
   const edit = (next: string, position: number) => {
     setAnchorState(null)
     setCursorState(Math.max(0, Math.min(next.length, position)))
-    setHistoryPos(null) // editing a recalled entry turns it into a fresh draft
     onChange(next)
-  }
-
-  const recall = (text: string) => {
-    setAnchorState(null)
-    setCursorState(text.length)
-    onChange(text)
   }
 
   const removeRange = (start: number, end: number) => edit(value.slice(0, start) + value.slice(end), start)
@@ -100,21 +88,9 @@ export function TextInput({
       return
     }
 
-    if (key.upArrow || key.downArrow) {
-      if (history.length === 0) return
-      if (key.upArrow) {
-        if (historyPos === null) draftRef.current = value
-        const next = historyPos === null ? 0 : Math.min(historyPos + 1, history.length - 1)
-        if (next === historyPos) return
-        setHistoryPos(next)
-        recall(history[next]!)
-      } else if (historyPos !== null) {
-        const next = historyPos - 1
-        setHistoryPos(next < 0 ? null : next)
-        recall(next < 0 ? draftRef.current : history[next]!)
-      }
-      return
-    }
+    // ↑/↓ belong to the screen, not the field: the home screen moves the
+    // recent cursor with them (ADR 0008)
+    if (key.upArrow || key.downArrow) return
 
     if (key.home) return place(0)
     if (key.end) return place(value.length)

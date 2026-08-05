@@ -8,6 +8,11 @@ Working thesis about what a person wants after Yoinks produces a transcript. Pro
 > and keep the words they were recorded with; read "fact" as the pre-0007 term for a
 > receipt, and "an answer is at most five facts" as the superseded shape.
 
+> **2026-08-05.** [Known cost](#known-cost) named the wrong rival and left differentiation as
+> the open question this thesis does not answer. Both are closed, by decision. The rival is a
+> chat application that takes the source URL itself, Yoinks does not compete with it, and what
+> that eliminates is listed in [Deliberately not doing](#deliberately-not-doing).
+
 Uses the vocabulary in `CONTEXT.md`: **source URL**, **artifact**, **transcript**, **block**,
 **skippable region**, **receipt**, **answer**. Constrained by
 [ADR 0001](adr/0001-facts-never-conclusions.md),
@@ -20,7 +25,8 @@ Supersedes the 2026-07-25 corpus/diff thesis, which was tested and largely falsi
 [What changed and why](#what-changed-and-why).
 
 **Status: frozen 2026-07-29. Reopened 2026-07-31 by evidence, resolved 2026-08-01 by decision,
-and frozen again.** Frozen means no further revision from the armchair. This document had
+and frozen again. Reopened 2026-08-05 by a grill of the differentiation question, resolved the
+same day by decision, and frozen again.** Frozen means no further revision from the armchair. This document had
 already been rewritten twice before that: once from evidence (Step 2), once from grilling
 (Step 3, same day, no new evidence in between). The previous thesis died the right way,
 contradicted by reality inside 48 hours; this one gets the same treatment or none. Everything
@@ -100,6 +106,22 @@ URL field. That is input convenience — it holds nothing about what a source sa
 inference. The line to hold is content, not state. Logging *questions asked* would cross it,
 and would rebuild the corpus this thesis exists to have killed.
 
+> **2026-08-05.** That file now has a visible surface — a `recent` panel on the home screen —
+> and its rows carry the source's own title beside the artifact that came out, or `asked` where
+> a source produced an answer and no file. See
+> [ADR 0008](adr/0008-recent-is-artifacts-not-content.md), which holds the same line in the same
+> place: state, never content.
+>
+> **2026-08-05, later, and this one crosses a line this paragraph draws.** Yoinks now logs
+> **questions as they are typed**, to `~/.config/yoinks/asks.jsonl`, with the receipt and
+> dropped counts beside each one. The sentence above says that would rebuild the corpus. See
+> [ADR 0009](adr/0009-the-ask-log-is-evidence.md) for the argument that it does not — the log
+> holds no word any source said, and nothing in the product reads it — and for the reason it was
+> taken: this document rests on *people arrive with a question already formed*, scores it 1 of 3,
+> withdraws the gate that would have tested it, and calls itself permanently n=1. The log is the
+> only instrument left that can move that number without a study. **If anything in `src/` ever
+> reads that file to decide what to show, the corpus is back and this note is the warning.**
+
 **5. Most people arrive without a question, and Yoinks has no special answer for them.**
 An earlier draft called the questionless arrival degenerate. The evidence says it is the
 majority: two of three. Handing that majority an unasked-for account of the content is
@@ -157,6 +179,23 @@ a history. It is a possible later feature for a heavy-repeat source, not the pro
 has an unresolved defect: what you have already heard is sometimes load-bearing scaffolding
 for what you have not, so subtracting it produces something unreadable.
 
+**Anything the source shows rather than says.** Yoinks reads captions, and otherwise the audio.
+It cannot answer *what was on his screen at 4:00*, and the rival named in
+[Known cost](#known-cost) can. Permanently out of scope rather than a gap waiting to be filled:
+closing it would mean holding frames, holding a model that reads them, and giving up
+[ADR 0002](adr/0002-drive-an-assistant-on-path.md) to do it.
+
+**Speed, and arriving without an install.** yt-dlp, ffmpeg, an assistant on PATH, and on the
+whisper path a 142 MB model and the minutes it takes to run. A chat application given the URL
+answers in seconds with none of that. The install is the price of the ground in
+[Known cost](#known-cost), not friction to be engineered away, and no amount of engineering
+closes a gap that starts at *download the video first*.
+
+**Answer quality as a contest.** [ADR 0002](adr/0002-drive-an-assistant-on-path.md) means
+Yoinks holds no model and no API key. The prose belongs to whichever assistant the person
+already runs. Tuning the prompt for better writing is competing on the one axis where Yoinks
+has nothing of its own to compete with. The prompt's job is the shape and the gate.
+
 **Any corpus, and everything that hangs off it.** Accumulation, cold-start, per-person
 history, second-chance triggers for skipped sources. All of it existed to serve the diff.
 With the diff demoted, none of it is justified, and the hardest unvalidated risk in the old
@@ -200,12 +239,42 @@ requiring a human reaction is now a design decision, taken openly, recorded in `
 
 ## Known cost
 
-Yoinks is now much closer to what a general chat application does with a pasted transcript.
-The old thesis had a real moat — no external tool has the corpus — and this one gives it up.
-What is left is doing the specific job well: getting the transcript, answering against it in
-cited facts, and not making the person carry a wall of text between two applications.
+An earlier version of this section named the wrong rival. It said Yoinks had become "much
+closer to what a general chat application does with a pasted transcript", and left whether that
+was enough of a difference as the open question this thesis does not answer. Two things were
+wrong with it. Nobody pastes a transcript into a chat application when they can hand it the
+link, and [ADR 0002](adr/0002-drive-an-assistant-on-path.md) makes Yoinks a pipe *into* that
+application rather than a competitor to it.
 
-That may not be enough of a difference. It is the open question this thesis does not answer.
+**The rival is a chat application that takes the source URL itself.** Gemini accepts a bare
+YouTube link, answers with timestamps, and reads the video frames as well as the audio. No
+install, no yt-dlp, no download wait. Against that, "getting the transcript and answering
+against it" is not a difference at all — it is the same job, done slower, by a person who had
+to install three things first.
+
+**Yoinks does not compete with it. Resolved 2026-08-05, by decision.** What that eliminates is
+listed in [Deliberately not doing](#deliberately-not-doing), and the eliminations are permanent
+rather than a backlog. What is left is the ground a URL-native chat application cannot stand on:
+
+- **The sources it will not take.** It reads the platforms its owner supports. yt-dlp reads
+  1,800 sites, and it reads a private link, an unlisted one, and one behind a login the person
+  already has.
+- **The media never leaves the machine, and Yoinks holds no account.** Where a source has no
+  captions, `whisper.cpp` transcribes the audio locally and the audio is discarded. What the
+  assistant on the person's PATH then does with the transcript is that assistant's business,
+  and the person chose it themselves ([ADR 0002](adr/0002-drive-an-assistant-on-path.md)).
+- **The gate.** A receipt whose time does not resolve to a block this source has is dropped,
+  and a gist with no surviving receipt is not shown at all
+  ([ADR 0005](adr/0005-a-fact-that-cannot-be-checked-is-not-shown.md),
+  [ADR 0007](adr/0007-an-answer-is-a-backed-gist.md)). Step 7 measured it firing at roughly 1%
+  of receipts. A chat application answering from a URL has no equivalent, because it has no
+  transcript to check itself against. This is the only *measured* difference in the list.
+- **A file the person keeps.** The transcript is an artifact, timed and marked. A chat ends.
+
+**The cost is the room.** [ADR 0002](adr/0002-drive-an-assistant-on-path.md) already narrowed
+the audience to people with an assistant CLI on their PATH. This narrows it again, to people
+whose sources are awkward or private. That is a small room, and it is one the rival cannot
+enter.
 
 ## Evidence
 

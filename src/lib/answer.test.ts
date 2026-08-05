@@ -68,7 +68,7 @@ test('a follow-up question prompt carries the question and nothing else new', ()
 })
 
 test('an answer is the gist prose and the receipts whose timestamps the source really has', () => {
-  const answer = parseAnswer(
+  const {answer} = parseAnswer(
     ['He says the weekly limit is drawn unevenly.', '', '[3:56] Opus draws 100% of the weekly limit'].join('\n'),
     BLOCKS,
   )
@@ -84,7 +84,7 @@ test('an answer is the gist prose and the receipts whose timestamps the source r
 // source whose blocks are at 0:00, 1:34 and 3:56 has fabricated the pointer,
 // and a fabricated pointer does not survive parsing.
 test('drops a receipt whose timestamp matches no block in the source', () => {
-  const answer = parseAnswer(
+  const {answer} = parseAnswer(
     [
       'He says the weekly limit is drawn unevenly.',
       '[3:56] Opus draws 100% of the weekly limit',
@@ -96,29 +96,49 @@ test('drops a receipt whose timestamp matches no block in the source', () => {
   assert.deepEqual(answer?.receipts, [{at: 236, text: 'Opus draws 100% of the weekly limit'}])
 })
 
+// Dropping is not enough on its own. A receipt removed in silence looks
+// exactly like an assistant that never invented one, and the gate is the whole
+// difference between Yoinks and handing the source URL to a chat application
+// (`docs/product-thesis.md`, Known cost). So the count comes back either way.
+test('counts every receipt the gate dropped, answer or no answer', () => {
+  const partial = parseAnswer(
+    ['He says the weekly limit is drawn unevenly.', '[3:56] real', '[7:13] invented', '[8:20] also invented'].join('\n'),
+    BLOCKS,
+  )
+
+  assert.equal(partial.dropped, 2)
+  assert.equal(partial.answer?.receipts.length, 1)
+
+  const nothingSurvived = parseAnswer(['A confident paragraph.', '[7:13] invented'].join('\n'), BLOCKS)
+
+  assert.equal(nothingSurvived.answer, undefined)
+  assert.equal(nothingSurvived.dropped, 1)
+  assert.equal(parseAnswer(['g', '[0:00] real'].join('\n'), BLOCKS).dropped, 0)
+})
+
 // The gate ADR 0007 adds on top: prose with nothing surviving behind it is
 // not an answer at all — an unbacked conclusion never reaches the screen.
 test('a gist with no surviving receipt is not an answer', () => {
-  assert.equal(parseAnswer('The transcript does not discuss the weekly limit.', BLOCKS), undefined)
-  assert.equal(parseAnswer(['A confident paragraph.', '[7:13] invented'].join('\n'), BLOCKS), undefined)
+  assert.equal(parseAnswer('The transcript does not discuss the weekly limit.', BLOCKS).answer, undefined)
+  assert.equal(parseAnswer(['A confident paragraph.', '[7:13] invented'].join('\n'), BLOCKS).answer, undefined)
 })
 
 // The other half of the same gate: an answer is a gist backed by receipts,
 // and receipts arriving alone are not one either.
 test('receipts with no gist are not an answer', () => {
-  assert.equal(parseAnswer('[3:56] Opus draws 100% of the weekly limit', BLOCKS), undefined)
+  assert.equal(parseAnswer('[3:56] Opus draws 100% of the weekly limit', BLOCKS).answer, undefined)
 })
 
 test('reads a timestamp past the hour', () => {
   const blocks = [{start: 3723, text: 'still going'}]
 
-  assert.deepEqual(parseAnswer(['g', '[1:02:03] still going'].join('\n'), blocks)?.receipts, [
+  assert.deepEqual(parseAnswer(['g', '[1:02:03] still going'].join('\n'), blocks).answer?.receipts, [
     {at: 3723, text: 'still going'},
   ])
 })
 
 test('a multi-line gist is joined into one paragraph, blank lines and all', () => {
-  const answer = parseAnswer(
+  const {answer} = parseAnswer(
     ['He says the limit is drawn unevenly.', '', 'He also says to check first.', '[0:00] the borrow checker moves the error earlier'].join(
       '\n',
     ),
@@ -129,7 +149,7 @@ test('a multi-line gist is joined into one paragraph, blank lines and all', () =
 })
 
 test('keeps the order the receipts were given in, rather than sorting by time', () => {
-  const answer = parseAnswer(
+  const {answer} = parseAnswer(
     ['g', '[3:56] the weekly limit point', '[0:00] the borrow checker point'].join('\n'),
     BLOCKS,
   )
@@ -138,7 +158,7 @@ test('keeps the order the receipts were given in, rather than sorting by time', 
 })
 
 test('a receipt is trimmed of the space after its stamp', () => {
-  const answer = parseAnswer(['g', '[0:00]     padded out'].join('\n'), BLOCKS)
+  const {answer} = parseAnswer(['g', '[0:00]     padded out'].join('\n'), BLOCKS)
 
   assert.deepEqual(answer?.receipts, [{at: 0, text: 'padded out'}])
 })

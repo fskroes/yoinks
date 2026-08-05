@@ -44,6 +44,21 @@ button, the format list and the footer hints are all clickable, and
 clicking the logo takes you back home. Files are saved to `~/Downloads`,
 and the file path is printed to your terminal when you're done.
 
+Under the paste box, `recent` shows the last six sources you did something
+with — the source's own title, which file came out (or `asked`, where you
+got an answer and no file), and how long ago. `↑`/`↓` picks one and `↵`
+yoinks it again; `esc` gives the paste box back.
+
+Two files, both local, both yours to delete:
+
+- `~/.config/yoinks/history.json` — the last fifty rows, which is what the
+  panel draws. No question and nothing a source said.
+- `~/.config/yoinks/asks.jsonl` — one line per question you ask, with how
+  many places in the source backed the answer and how many timestamps the
+  gate dropped. yoinks never reads it back and never shows it; it is there so
+  you can count your own questions later (`jq` is enough). It holds no
+  transcript, no answer and no quote.
+
 The default `auto` theme uses your terminal's own foreground and background,
 so it follows light and dark terminal themes without guessing. Press `^t` or
 click the theme control in the footer to cycle through `auto`, `light`, and
@@ -51,6 +66,30 @@ click the theme control in the footer to cycle through `auto`, `light`, and
 `--theme dark` to choose the starting theme for one launch.
 
 <img src="assets/download-options.png" alt="yoinks format picker — resolutions with estimated file sizes, plus audio-only mp3" width="100%">
+
+## Ask about a source
+
+On the pick screen, just start typing to ask a question instead of saving the file.
+
+```sh
+$ yoinks https://x.com/user/status/1234567890
+> what did they say the pricing was?
+```
+
+You get a short answer in plain prose, and under it a line saying how many places in the
+source back it. Hit enter to unfold them: timestamped lines in the source's own words, each
+one a place you can go and check. Pick one to ask for more about that moment.
+
+The part that matters is what you never see. Assistants invent citations, and a timestamp is
+the easiest thing to invent because it looks like evidence. So yoinks checks every timestamp
+against the transcript it actually has, drops the ones that don't resolve, and if nothing
+survives it tells you the source doesn't answer that rather than showing you a confident
+paragraph with nothing behind it.
+
+If you can paste your link into a chatbot, do that — it's faster and it can see the picture
+as well as hear the words. yoinks is for the other links: the private one, the unlisted one,
+the one on a site no chatbot accepts, the one you'd rather not upload. It reads what is said,
+not what is shown, and nothing but the question and the transcript leaves your machine.
 
 ## How it works
 
@@ -71,15 +110,12 @@ click the theme control in the footer to cycle through `auto`, `light`, and
   the ggml-base model (~142MB) is downloaded to `~/.yoinks/models`, unless one
   already exists in `~/.cache/whisper` or `$YOINKS_WHISPER_MODEL` points at
   another model. That path is not timed, so nothing is marked in it.
-- On the pick screen you can **just start typing to ask about the source**
-  instead of saving it. Yoinks reads the captions and hands them, with your
-  question, to an assistant already on your PATH (Claude Code or Codex) — it
-  never calls a model itself and holds no API key. The answer is a short gist
-  backed by timestamped receipts — a receipt whose timestamp doesn't match the
-  source is dropped, and a gist with no surviving receipt behind it is not
-  shown at all. Answers are displayed
-  and thrown away — yoinks saves nothing. Follow-up questions continue a
-  conversation your assistant remembers, the same way any chat with it does.
+- Asking a question hands the transcript, with your question, to an assistant
+  already on your PATH (Claude Code or Codex). yoinks never calls a model
+  itself and holds no API key, so there's nothing to sign up for and no usage
+  to pay for twice. Answers are shown and thrown away — yoinks saves nothing.
+  Follow-up questions continue a conversation your assistant remembers, the
+  same way any chat with it does.
 - The UI is [Ink](https://github.com/vadimdemedes/ink) — React for the
   terminal.
 

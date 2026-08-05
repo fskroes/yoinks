@@ -27,6 +27,7 @@
     "test": "tsx --test src/**/*.test.ts",
     "typecheck": "tsc --noEmit",
     "start": "node dist/cli.js",
+    "prototype:recent-panel": "tsx prototypes/recent-panel/run.tsx",
     "prepublishOnly": "npm test && npm run typecheck && npm run build"
   },
   "author": "Pablo Stanley",

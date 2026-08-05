@@ -52,6 +52,28 @@ export function wrapText(text: string, width: number): string[] {
   return lines
 }
 
+/**
+ * How long ago, in the fewest characters that stay honest: `now`, `14m`,
+ * `3h`, `yesterday`, `6d`, `3w`, then the date. A recent row is read at a
+ * glance, so the age is a handle for "the one from this morning", not a
+ * measurement.
+ */
+export function formatAge(at: string, now = Date.now()): string {
+  const then = Date.parse(at)
+  if (!Number.isFinite(then)) return ''
+  const minutes = Math.floor((now - then) / 60_000)
+  if (minutes < 1) return 'now'
+  if (minutes < 60) return `${minutes}m`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours}h`
+  const days = Math.floor(hours / 24)
+  if (days === 1) return 'yesterday'
+  if (days < 7) return `${days}d`
+  const weeks = Math.floor(days / 7)
+  if (weeks < 5) return `${weeks}w`
+  return new Date(then).toISOString().slice(0, 10)
+}
+
 export function formatSpeed(bytesPerSecond: number): string {
   if (!Number.isFinite(bytesPerSecond) || bytesPerSecond <= 0) return ''
   return `${formatBytes(bytesPerSecond)}/s`

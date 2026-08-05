@@ -10,11 +10,13 @@ import {FullScreen} from './components/fullscreen.js'
 import {Logo} from './components/logo.js'
 import {Panel} from './components/panel.js'
 import {ProgressBar} from './components/progress-bar.js'
+import {Recent, RECENT_ROWS, recentTitle} from './components/recent.js'
 import {Shortcuts} from './components/shortcuts.js'
 import {TextInput} from './components/text-input.js'
 import {clickTargetAt, findFrameRow, frameRowSpan, type ClickTarget} from './lib/click-map.js'
 import {formatBytes, formatDuration, formatEta, formatSpeed, shortenPath, truncate, wrapText} from './lib/format.js'
-import {addToHistory, loadHistory} from './lib/history.js'
+import {logAsk, type Asked} from './lib/asks.js'
+import {addToHistory, ASKED, loadHistory} from './lib/history.js'
 import {detectPlatform, isProbablyUrl, type Platform} from './lib/platforms.js'
 import {useMouseClick} from './lib/use-mouse-click.js'
 import {nextThemeMode, ThemeProvider, type ThemeMode, useTheme} from './theme.js'
@@ -164,7 +166,7 @@ type Phase =
     }
   | {name: 'transcribing'; status: string; percent?: number}
   | {name: 'answering'; status: string}
-  | {name: 'answered'; question: string; answer: Answer | undefined}
+  | {name: 'answered'; question: string; answer: Answer | undefined; dropped: number}
   | {name: 'done'; filepath: string}
   | {name: 'error'; message: string}
 
@@ -247,6 +249,8 @@ function AppContent({
   const [url, setUrl] = useState(initialUrl ?? '')
   const [urlInput, setUrlInput] = useState('')
   const [history, setHistory] = useState(loadHistory)
+  // the recent list on the home screen: -1 is the paste box, 0+ is a row
+  const [recentCursor, setRecentCursor] = useState(-1)
   const [platform, setPlatform] = useState<Platform>()
   const [info, setInfo] = useState<VideoInfo>()
   const [choices, setChoices] = useState<DownloadChoice[]>([])
@@ -270,6 +274,9 @@ function AppContent({
   const columns = stdout?.columns && stdout.columns > 0 ? stdout.columns : 80
   const boxWidth = Math.max(14, Math.min(64, columns - 6))
   const contentWidth = Math.max(10, Math.min(columns - 4, 78))
+  // the panel runs to the right edge of the yoink button
+  const recentWidth = boxWidth + YOINK_BUTTON.length + 4
+  const recentRows = history.slice(0, RECENT_ROWS)
 
   const startProbe = useCallback(async (targetUrl: string) => {
     const controller = new AbortController()
@@ -309,6 +316,7 @@ function AppContent({
     setChoices([])
     setAsking(false)
     setQuestion('')
+    setRecentCursor(-1) // home is the paste box, never a row you left selected
     conversationRef.current = undefined // leaving the source drops the handle (ADR 0006)
     setPhase({name: 'input'})
   }, [])
@@ -359,6 +367,24 @@ function AppContent({
           setQuestion('')
         }
         return
+      }
+      // the recent list. ↑ from the paste box lands on the newest row, which
+      // is where ↑ used to recall it into the field; esc gives the box back
+      if (phase.name === 'input' && recentRows.length > 0) {
+        if (key.upArrow) {
+          setRecentCursor(cursor => (cursor === -1 ? 0 : cursor === 0 ? recentRows.length - 1 : cursor - 1))
+          return
+        }
+        if (key.downArrow) {
+          setRecentCursor(cursor => (cursor === -1 || cursor === recentRows.length - 1 ? 0 : cursor + 1))
+          return
+        }
+        if (key.escape && recentCursor >= 0) {
+          setRecentCursor(-1)
+          return
+        }
+        // typing a link is leaving the list, whatever was selected
+        if (input && !key.ctrl && !key.meta && !key.return && !key.tab) setRecentCursor(-1)
       }
       // a number picks a revealed receipt, the same way it picks a format
       if (phase.name === 'answered' && revealed && /^[1-9]$/.test(input) && !key.ctrl && !key.meta) {
@@ -424,6 +450,15 @@ function AppContent({
     void startProbe(trimmed)
   }
 
+  // ↵ on the home screen: a selected row wins over whatever is in the field,
+  // because selecting a row is what the person did last
+  const handleHomeSubmit = (value: string) => {
+    const row = recentCursor >= 0 ? recentRows[recentCursor] : undefined
+    if (!row) return handleUrlSubmit(value)
+    setRecentCursor(-1)
+    handleUrlSubmit(row.url)
+  }
+
   const clipboardOffered = Boolean(clipboardUrl) && urlInput === ''
   const clipboardAccepted = Boolean(clipboardUrl) && urlInput === clipboardUrl
 
@@ -446,7 +481,16 @@ function AppContent({
       }
       const finish = (filepath: string) => {
         onOutcome({filepath})
-        setHistory(addToHistory(url))
+        // the row records the artifact that came out — its own extension is
+        // the honest answer to "what did I get", whatever was picked
+        setHistory(
+          addToHistory({
+            url,
+            title: info?.title || url,
+            artifact: path.extname(filepath).slice(1) || 'file',
+            at: new Date().toISOString(),
+          }),
+        )
         setPhase({name: 'done', filepath})
       }
       // Where both rungs meet. The platform's captions and whisper's own VTT
@@ -523,7 +567,7 @@ function AppContent({
 
   // A later turn rides the conversation: the assistant already holds the
   // transcript, so only the new prompt travels and nothing is refetched.
-  const runFollowUp = (shownAs: string, prompt: string): boolean => {
+  const runFollowUp = (shownAs: string, prompt: string, asked: Asked): boolean => {
     if (!conversationRef.current) return false
     const {conversation, blocks} = conversationRef.current
     setAsking(false)
@@ -537,7 +581,7 @@ function AppContent({
         setPhase({name: 'answering', status: `asking ${assistant.name}…`})
         const turn = await ask(assistant, prompt, {conversation, signal: controller.signal})
         if (controller.signal.aborted) return
-        landTurn(shownAs, turn, blocks)
+        landTurn(shownAs, turn, blocks, asked)
       } catch (error) {
         if (controller.signal.aborted) return
         setPhase({name: 'error', message: error instanceof Error ? error.message : String(error)})
@@ -549,22 +593,41 @@ function AppContent({
   // Every turn lands the same way: keep the handle, gate the receipts against
   // the same blocks (ADR 0005), show the answer whole — or nothing, when no
   // receipt survives to back the prose (ADR 0007).
-  const landTurn = (shownAs: string, turn: Turn, blocks: Block[]) => {
+  // Every turn lands here, and every turn is written down the same way
+  // (ADR 0009) — the question, the source, and how the gate went. The row in
+  // recent says a source was asked about; the log says what was asked.
+  const landTurn = (shownAs: string, turn: Turn, blocks: Block[], asked: Asked) => {
+    const parsed = parseAnswer(turn.text, blocks)
     conversationRef.current = {conversation: turn.conversation, blocks}
     setRevealed(false)
     setReceiptCursor(0)
-    setPhase({name: 'answered', question: shownAs, answer: parseAnswer(turn.text, blocks)})
+    setPhase({name: 'answered', question: shownAs, ...parsed})
+    const title = info?.title || url
+    const at = new Date().toISOString()
+    setHistory(addToHistory({url, title, artifact: ASKED, at}))
+    logAsk({
+      ...asked,
+      at,
+      url,
+      title,
+      receipts: parsed.answer?.receipts.length ?? 0,
+      dropped: parsed.dropped,
+    })
   }
 
   const handleExpand = (receipt: Receipt) => {
-    runFollowUp(`more about [${stamp(receipt.at)}] ${receipt.text}`, buildExpansionPrompt(receipt))
+    // the expansion logs the second it asked about, never the receipt's words
+    runFollowUp(`more about [${stamp(receipt.at)}] ${receipt.text}`, buildExpansionPrompt(receipt), {
+      kind: 'expansion',
+      second: receipt.at,
+    })
   }
 
   const handleAsk = (asked: string) => {
     const trimmed = asked.trim()
     if (!trimmed) return
     // a second question about the same source continues its conversation
-    if (runFollowUp(trimmed, buildFollowUpPrompt(trimmed))) return
+    if (runFollowUp(trimmed, buildFollowUpPrompt(trimmed), {kind: 'question', question: trimmed})) return
     setAsking(false)
     const controller = new AbortController()
     abortRef.current = controller
@@ -609,8 +672,7 @@ function AppContent({
           {signal: controller.signal},
         )
         if (controller.signal.aborted) return
-        setHistory(addToHistory(url))
-        landTurn(trimmed, turn, blocks)
+        landTurn(trimmed, turn, blocks, {kind: 'question', question: trimmed})
       } catch (error) {
         if (controller.signal.aborted) return
         setPhase({name: 'error', message: error instanceof Error ? error.message : String(error)})
@@ -619,8 +681,8 @@ function AppContent({
   }
 
   let hints: Array<[string, string]> = [...HINTS[phase.name], ['^t', `theme:${theme.mode}`]]
-  if (phase.name === 'input' && history.length > 0) {
-    hints = [hints[0]!, ['↑', 'history'], ...hints.slice(1)]
+  if (phase.name === 'input' && recentRows.length > 0) {
+    hints = [hints[0]!, ['↑↓', 'recent'], ...hints.slice(1)]
   }
   if (phase.name === 'picking' && asking) {
     hints = [['↵', 'ask'], ['esc', 'back to saving'], ['^c', 'quit'], ['^t', `theme:${theme.mode}`]]
@@ -658,7 +720,7 @@ function AppContent({
         : resetToInput
     }
     if (key === '↵') {
-      if (phase.name === 'input') return () => handleUrlSubmit(urlInput)
+      if (phase.name === 'input') return () => handleHomeSubmit(urlInput)
       if (phase.name === 'picking') return asking ? () => handleAsk(question) : () => handlePick({value: highlightRef.current})
       if (phase.name === 'answered') {
         if (asking) return () => handleAsk(question)
@@ -680,7 +742,10 @@ function AppContent({
   const clickTargets: ClickTarget[] = []
   if (phase.name === 'input') {
     // the frame button rows above/below the label are part of the button
-    clickTargets.push({match: `  ${YOINK_BUTTON}  `, padY: 1, action: () => handleUrlSubmit(urlInput)})
+    clickTargets.push({match: `  ${YOINK_BUTTON}  `, padY: 1, action: () => handleHomeSubmit(urlInput)})
+    for (const row of recentRows) {
+      clickTargets.push({match: recentTitle(row, recentWidth), action: () => handleUrlSubmit(row.url)})
+    }
   }
   if (phase.name === 'picking') {
     for (const [index, choice] of choices.entries()) {
@@ -732,10 +797,9 @@ function AppContent({
             <TextInput
               value={urlInput}
               onChange={setUrlInput}
-              onSubmit={handleUrlSubmit}
+              onSubmit={handleHomeSubmit}
               placeholder="https://youtube.com/watch?v=…"
               width={boxWidth - 6}
-              history={history}
               submitOnPaste={isProbablyUrl}
               onTab={() => {
                 if (clipboardOffered) setUrlInput(clipboardUrl!)
@@ -748,6 +812,13 @@ function AppContent({
             <Text color={theme.gray} dimColor={theme.dimSecondary}>link in your clipboard — ⇥ to paste it</Text>
           ) : clipboardAccepted ? (
             <Text color={theme.gray} dimColor={theme.dimSecondary}>from your clipboard — ↵ to yoink it</Text>
+          ) : null}
+          {/* What yoinks saved, not what any source said (ADR 0008) */}
+          {recentRows.length > 0 ? (
+            <>
+              <Gap />
+              <Recent rows={recentRows} selected={recentCursor} width={recentWidth} />
+            </>
           ) : null}
         </Box>
       )}
@@ -967,6 +1038,18 @@ function AppContent({
                 </Text>
               )}
             </>
+          )}
+          {/* the gate, said out loud. ADR 0005 drops a receipt pointing at a
+              time this source never recorded; dropping it in silence made the
+              one thing a chat application can't do look like nothing happening
+              (`docs/product-thesis.md`, Known cost). */}
+          {phase.dropped > 0 && (
+            <Text color={theme.gray} dimColor={theme.dimSecondary}>
+              {'  '}
+              {phase.dropped === 1
+                ? '1 line pointed at a time this source doesn’t have — dropped'
+                : `${phase.dropped} lines pointed at times this source doesn’t have — dropped`}
+            </Text>
           )}
           <Gap />
           {/* the picker's grammar, reused: reveal the receipts, pick one to

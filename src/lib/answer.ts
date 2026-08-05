@@ -15,7 +15,10 @@
  * mechanical rather than aspirational: a line whose timestamp is not a block
  * this source actually has does not survive parsing (ADR 0005). And a gist
  * with no surviving receipt behind it is not an answer at all — Yoinks never
- * shows an unbacked conclusion (ADR 0007).
+ * shows an unbacked conclusion (ADR 0007). What it drops it counts, and the
+ * screen says so: this gate is the difference between Yoinks and handing the
+ * source URL to a chat application, and it was invisible for as long as it
+ * dropped in silence (`docs/product-thesis.md`, Known cost).
  */
 
 import type {Block, SkippableRegion} from './skippable.js'
@@ -31,6 +34,18 @@ export type Answer = {
   /** The assistant's own prose, at most three sentences by the prompt's rule. */
   gist: string
   receipts: Receipt[]
+}
+
+/**
+ * What parsing found: the answer if one survived, and how many receipts the
+ * gate dropped getting there. `dropped` is reported rather than swallowed —
+ * the gate is the one thing a chat application given the source URL has no
+ * equivalent of, and a gate nobody ever sees fire is indistinguishable from no
+ * gate at all (`docs/product-thesis.md`, Known cost).
+ */
+export type ParsedAnswer = {
+  answer: Answer | undefined
+  dropped: number
 }
 
 /** `[3:56] …` or `[1:02:03] …` — the transcript's own stamp, reused as the pointer. */
@@ -92,15 +107,17 @@ export function buildFollowUpPrompt(question: string): string {
 }
 
 /**
- * The assistant's reply into an answer, or nothing. Timestamped lines become
- * receipts when their time resolves to a block this source has; everything
- * else is the gist, joined into one paragraph. No surviving receipt means no
- * answer — however confident the prose.
+ * The assistant's reply into an answer, or nothing, plus the count the gate
+ * dropped. Timestamped lines become receipts when their time resolves to a
+ * block this source has; everything else is the gist, joined into one
+ * paragraph. No surviving receipt means no answer — however confident the
+ * prose.
  */
-export function parseAnswer(raw: string, blocks: Block[]): Answer | undefined {
+export function parseAnswer(raw: string, blocks: Block[]): ParsedAnswer {
   const recorded = new Set(blocks.map(block => block.start))
   const receipts: Receipt[] = []
   const prose: string[] = []
+  let dropped = 0
 
   for (const rawLine of raw.split('\n')) {
     const line = rawLine.trim()
@@ -111,7 +128,10 @@ export function parseAnswer(raw: string, blocks: Block[]): Answer | undefined {
       continue
     }
     const at = (hit[1] ? Number(hit[1]) * 3600 : 0) + Number(hit[2]) * 60 + Number(hit[3])
-    if (!recorded.has(at)) continue
+    if (!recorded.has(at)) {
+      dropped += 1
+      continue
+    }
     // Order is the answer's own. Sorting by time would read as a summary of
     // the source rather than backing for the gist.
     receipts.push({at, text: hit[4].trim()})
@@ -120,6 +140,6 @@ export function parseAnswer(raw: string, blocks: Block[]): Answer | undefined {
   // Both halves are load-bearing: receipts without prose are not an answer
   // any more than prose without receipts — the glossary defines an answer as
   // a gist backed by receipts, and half of one is neither.
-  if (!receipts.length || !prose.length) return undefined
-  return {gist: prose.join(' '), receipts}
+  if (!receipts.length || !prose.length) return {answer: undefined, dropped}
+  return {answer: {gist: prose.join(' '), receipts}, dropped}
 }
