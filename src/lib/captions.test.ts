@@ -202,3 +202,91 @@ test('produces blocks a sponsor read can be detected in', () => {
     {start: 90, end: 270, kind: 'sponsor', cues: ["today's sponsor"]},
   ])
 })
+
+/**
+ * The shape whisper.cpp writes with `-ovtt`: its own segments, one sentence-ish
+ * per cue at around four seconds each, punctuated and capitalised, text
+ * indented by one space. Nothing rolls — a cue carries only its own words.
+ */
+function whisperVtt(lines: string[], every: number): string {
+  const stamp = (s: number) =>
+    `00:${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}.000`
+  const cues = lines.map((line, i) => `${stamp(i * every)} --> ${stamp((i + 1) * every)}\n ${line}\n`)
+  return `WEBVTT\n\n${cues.join('\n')}`
+}
+
+const RECOGNISED = [
+  'So the thing about the borrow checker is that it moves the error earlier.',
+  'That is the whole trick, and it took me a long time to see it.',
+  'Once you do, the iterator loop stops fighting you.',
+  'People put up with it for exactly that reason.',
+  'I want to come back to lifetimes in a moment.',
+  'But there is something I should get out of the way.',
+  'It will only take a second, I promise.',
+  'We have all sat through worse than this.',
+  'Anyway, where was I with the checker.',
+  'Right, the error moves earlier, that was the point.',
+  'And that changes how you write the whole loop.',
+  'You stop reaching for clones you do not need.',
+  'Which is genuinely the thing nobody tells you.',
+  // A straight apostrophe, because that is what whisper writes — zero
+  // typographic ones across all six sources of the step 9 corpus, against 88 to
+  // 276 straight ones each. It matters: every cue phrase spelled `today'?s`
+  // (src/lib/skippable.ts) would silently stop firing on a curly one.
+  "Before we get into it though, a word from today's sponsor.",
+  'Clerk does authentication for your application.',
+  'Clerk gave me drop-in sign-in in an afternoon.',
+  'Clerk handles the session tokens so you never touch them.',
+  'Clerk has a free tier that is unusually generous.',
+  'Clerk is honestly the piece I stopped thinking about.',
+  'That is the last I will say about Clerk.',
+  'So, back to the borrow checker and where lifetimes get inferred.',
+  'The compiler is doing more for you than it lets on.',
+  'It infers the common case and asks about the rest.',
+  'That is not more complicated than it sounds.',
+  'The rest of this is just practice, really.',
+  'You write it wrong a few times and then you do not.',
+  'Which is how everything works, I suppose.',
+  'Right, that is where I will leave the checker.',
+  'There is one more thing worth showing you.',
+  'And then I will let you get on with it.',
+]
+
+/**
+ * The claim the caption-less path rests on: whisper's VTT needs no parser of
+ * its own. Same `parseCaptions`, same 45-second granularity, same detector —
+ * measured across six sources in `docs/validation/step-9-whisper-timing.md`,
+ * and pinned here so it is checkable without the network or whisper on PATH.
+ */
+test('reads whisper’s own VTT into blocks a sponsor read is detected in', () => {
+  const blocks = parseCaptions(whisperVtt(RECOGNISED, 4))
+
+  assert.deepEqual(detectSkippableRegions(blocks), [
+    {start: 52, end: 104, kind: 'sponsor', cues: ["today's sponsor", 'a word from']},
+  ])
+})
+
+/**
+ * Whisper's cues are around four seconds where auto-subs are around one, and
+ * `paragraphs` keeps the cue that carries it past 45 seconds. So a whisper
+ * block runs 45 seconds plus one whisper cue, and every boundary after the
+ * first is a little later than the caption path's would be.
+ *
+ * That is why step 9 scores two sources' region starts as early where the
+ * caption path scores one: a read that begins within a couple of seconds of a
+ * boundary falls on the earlier block. It is `prototypes/map` defect 1 — the
+ * 45-second floor — and not a defect this path introduces, so it is recorded
+ * here rather than tuned away.
+ */
+test('a block runs 45 seconds plus the cue that overshoots it', () => {
+  assert.deepEqual(parseCaptions(whisperVtt(RECOGNISED, 4)).map(block => block.start), [0, 52, 104])
+})
+
+// Nothing rolls in whisper's output, so the strip written for auto-subs has to
+// leave it alone. Measured on a real 17-minute source: 3,408 words in the VTT,
+// 3,407 out — one coincidental adjacent duplicate, nothing mangled.
+test('leaves whisper’s non-rolling cues intact', () => {
+  const blocks = parseCaptions(whisperVtt(['I think it is fine.', 'It is fine, I think.'], 4))
+
+  assert.deepEqual(blocks, [{start: 0, text: 'I think it is fine. It is fine, I think.'}])
+})

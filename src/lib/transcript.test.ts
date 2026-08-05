@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import {renderTranscript, renderUntimedTranscript} from './transcript.js'
+import {renderTranscript} from './transcript.js'
 
 const BLOCKS = [
   {start: 0, text: 'the thing about the borrow checker is that it moves the error earlier'},
@@ -136,28 +136,4 @@ test('prints an exact end when the region stops before the last block', () => {
   })
 
   assert.match(text, /^--- skippable · sponsor · 0:00–1:30$/m)
-})
-
-// The captionless fallback: whisper returns no times, so there is nothing to
-// stamp and nothing that could honestly be marked.
-test('the untimed fallback keeps the same header and adds no marks', () => {
-  const text = renderUntimedTranscript({
-    title: 'Borrow checking',
-    url: 'https://example.com/v',
-    text: 'the thing about the borrow checker\nis that it moves the error earlier',
-  })
-
-  assert.equal(
-    text,
-    `Borrow checking
-https://example.com/v
-
-the thing about the borrow checker
-is that it moves the error earlier
-`,
-  )
-})
-
-test('the untimed fallback drops the title line when there is no title', () => {
-  assert.equal(renderUntimedTranscript({url: 'u', text: 'words'}), 'u\n\nwords\n')
 })

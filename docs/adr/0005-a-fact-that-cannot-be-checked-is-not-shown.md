@@ -53,6 +53,16 @@ that states facts and quietly invents one every so often, in the one place nobod
   times, so every fact would fail this check and the honest answer is to say so up front rather
   than run a query that can only produce nothing. Closing that is option (a) of
   [issue #5](https://github.com/fskroes/yoinks/issues/5).
+
+  *Closed 2026-08-03,* with [ADR 0004](0004-the-transcript-artifact-is-timed-and-marked.md) and
+  for the same reason: the premise was never true of whisper, only of the `--no-timestamps` flag
+  this code passed it. `whisper-cli -ovtt` returns timed cues, so a caption-less source now
+  produces blocks a fact can point at and the refusal lost its basis — the answer path recognises
+  the audio instead of declining. The check itself is unchanged: facts are still exact-matched
+  against block starts, and a fact whose stamp is not a block this source has is still dropped.
+  Driven through the CLI on a caption-less source in
+  [`step-9-whisper-timing.md`](../validation/step-9-whisper-timing.md), the answer came back as
+  five facts, every one of them stamped and every one surviving the check.
 - **Expect "why did it drop half my answer" to be asked.** The answer is that the dropped half
   pointed at times the source does not have. Surfacing a count is a reasonable future change;
   showing the content is not.

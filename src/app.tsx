@@ -30,11 +30,11 @@ import {
   type VideoInfo,
 } from './lib/ytdlp.js'
 import {parseCaptions} from './lib/captions.js'
-import {detectSkippableRegions} from './lib/skippable.js'
-import {renderTranscript, renderUntimedTranscript, stamp} from './lib/transcript.js'
+import {detectSkippableRegions, type Block} from './lib/skippable.js'
+import {renderTranscript, stamp} from './lib/transcript.js'
 import {ensureWhisperModel, findWhisper, transcribe} from './lib/transcribe.js'
-import {buildPrompt, parseFacts, type Fact} from './lib/answer.js'
-import {ask, findAssistant} from './lib/assistant.js'
+import {buildExpansionPrompt, buildFollowUpPrompt, buildPrompt, factStream, parseFacts, type Fact} from './lib/answer.js'
+import {ask, findAssistant, type Turn} from './lib/assistant.js'
 
 const OUT_DIR = path.join(os.homedir(), 'Downloads')
 const YOINK_BUTTON = 'yoink'
@@ -107,6 +107,48 @@ function indeterminateMeta(progress: DownloadProgress): string {
   return `${partLabel(progress)}${bytes.padStart(8)}  ${speed.padEnd(10)}`
 }
 
+/**
+ * Recognise a source's audio into timed blocks: fetch the audio to a temp
+ * directory, hand it to whisper, throw the audio away.
+ *
+ * What comes back is the same shape the platform's captions parse to, so a
+ * caller cannot tell which rung ran except by how long it took — measured in
+ * `docs/validation/step-9-whisper-timing.md`. Only the answer path uses this;
+ * the picker drives its own download because that one carries the chosen
+ * format, the part counter and the expired-URL retry.
+ */
+async function recognise(
+  opts: {ytdlp: string; url: string; choice: DownloadChoice},
+  on: {onStatus: (status: string) => void; onPercent: (percent: number) => void},
+  signal: AbortSignal,
+): Promise<Block[]> {
+  // fail fast on a missing whisper install, before downloading anything
+  const whisper = await findWhisper()
+  const tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'yoinks-transcribe-'))
+  try {
+    const ffmpegLocation = await findFfmpeg()
+    const mediaPath = await download(
+      {ytdlp: opts.ytdlp, ffmpegLocation, url: opts.url, choice: opts.choice, outDir: tmpDir},
+      {
+        onProgress: progress =>
+          on.onStatus(
+            `fetching the audio… ${formatBytes(progress.downloadedBytes)}${
+              progress.totalBytes ? ` / ${formatBytes(progress.totalBytes)}` : ''
+            }`,
+          ),
+        onProcessing: () => on.onStatus('fetching the audio…'),
+      },
+      signal,
+    )
+    const model = await ensureWhisperModel(on.onStatus, signal)
+    if (signal.aborted) throw new Error('Cancelled.')
+    on.onStatus('recognising the audio…')
+    return await transcribe({mediaPath, ffmpeg: ffmpegLocation, whisper, model}, on.onPercent, signal)
+  } finally {
+    void fs.rm(tmpDir, {recursive: true, force: true})
+  }
+}
+
 export type Outcome = {filepath?: string}
 
 type Phase =
@@ -121,7 +163,7 @@ type Phase =
       refreshing?: boolean
     }
   | {name: 'transcribing'; status: string; percent?: number}
-  | {name: 'answering'; status: string}
+  | {name: 'answering'; status: string; facts: Fact[]}
   | {name: 'answered'; question: string; facts: Fact[]}
   | {name: 'done'; filepath: string}
   | {name: 'error'; message: string}
@@ -154,7 +196,9 @@ const HINTS: Record<Phase['name'], Array<[string, string]>> = {
     ['^c', 'quit'],
   ],
   answered: [
-    ['↵', 'back'],
+    ['↑↓', 'choose'],
+    ['↵', 'expand'],
+    ['esc', 'back'],
     ['^c', 'quit'],
   ],
   done: [['^c', 'quit']],
@@ -207,6 +251,13 @@ function AppContent({
   // the ask input on the picking screen: closed until the person starts typing
   const [asking, setAsking] = useState(false)
   const [question, setQuestion] = useState('')
+  // the fact under the cursor on the answered screen, for expanding it
+  const [factCursor, setFactCursor] = useState(0)
+  // the conversation about this source (CONTEXT.md): the assistant remembers
+  // it, Yoinks holds only this handle and drops it on leaving the source
+  // (ADR 0006). The blocks ride along so every turn's facts stay checkable
+  // without refetching the transcript.
+  const conversationRef = useRef<{conversation: string; blocks: Block[]} | undefined>(undefined)
   const ytdlpRef = useRef('')
   const highlightRef = useRef(0) // choice under the cursor, for the ↵ hint click
   const infoJsonRef = useRef<string | undefined>(undefined)
@@ -220,6 +271,7 @@ function AppContent({
   const startProbe = useCallback(async (targetUrl: string) => {
     const controller = new AbortController()
     abortRef.current = controller
+    conversationRef.current = undefined // a new source is a new conversation
     setPlatform(detectPlatform(targetUrl))
     setPhase({name: 'probing', status: 'warming up…'})
     try {
@@ -254,6 +306,7 @@ function AppContent({
     setChoices([])
     setAsking(false)
     setQuestion('')
+    conversationRef.current = undefined // leaving the source drops the handle (ADR 0006)
     setPhase({name: 'input'})
   }, [])
 
@@ -272,6 +325,23 @@ function AppContent({
     setUrlInput(url) // keep the link around so a cancel isn't destructive
   }, [resetToInput, url])
 
+  // Cancelling one turn, or hitting an error on it, is not leaving the source:
+  // the conversation survives (ADR 0006) and the picker is the way back. Only
+  // a first ask — no conversation yet — falls back to the old full cancel.
+  const cancelTurn = useCallback(() => {
+    if (!conversationRef.current) {
+      cancelRun()
+      return
+    }
+    abortRef.current?.abort()
+    backToPicking()
+  }, [backToPicking, cancelRun])
+
+  const leaveError = useCallback(() => {
+    if (conversationRef.current) backToPicking()
+    else resetToInput()
+  }, [backToPicking, resetToInput])
+
   useInput(
     (input, key) => {
       if (key.ctrl && input === 't') {
@@ -279,17 +349,27 @@ function AppContent({
         return
       }
       // while the ask input is open it owns the keyboard; esc closes it and
-      // hands the picker back rather than abandoning the source
-      if (phase.name === 'picking' && asking) {
+      // hands the screen back rather than abandoning the source
+      if ((phase.name === 'picking' || phase.name === 'answered') && asking) {
         if (key.escape) {
           setAsking(false)
           setQuestion('')
         }
         return
       }
-      // start typing on the picking screen and you are asking about the source
+      // a number picks a fact to expand, the same way it picks a format
+      if (phase.name === 'answered' && /^[1-9]$/.test(input) && !key.ctrl && !key.meta) {
+        const index = Number(input) - 1
+        if (index < phase.facts.length) {
+          setFactCursor(index)
+          return
+        }
+      }
+      // start typing on the picking or answered screen and you are asking
+      // about the source — the same grammar on both (a follow-up is just a
+      // question the conversation already has context for)
       if (
-        phase.name === 'picking' &&
+        (phase.name === 'picking' || phase.name === 'answered') &&
         input &&
         !key.ctrl &&
         !key.meta &&
@@ -303,13 +383,20 @@ function AppContent({
         setAsking(true)
         return
       }
-      if (key.escape && (phase.name === 'picking' || phase.name === 'error' || phase.name === 'done')) resetToInput()
+      if (key.escape && (phase.name === 'picking' || phase.name === 'done')) resetToInput()
+      if (key.escape && phase.name === 'error') leaveError()
       if (key.escape && (phase.name === 'probing' || phase.name === 'downloading' || phase.name === 'transcribing'))
         cancelRun()
-      if (key.escape && phase.name === 'answering') cancelRun()
+      if (key.escape && phase.name === 'answering') cancelTurn()
       if (key.escape && phase.name === 'answered') backToPicking()
-      if (key.return && phase.name === 'answered') backToPicking()
-      if (key.return && (phase.name === 'error' || phase.name === 'done')) resetToInput()
+      if (phase.name === 'answered' && phase.facts.length > 0) {
+        if (key.upArrow) setFactCursor(cursor => Math.max(0, cursor - 1))
+        if (key.downArrow) setFactCursor(cursor => Math.min(phase.facts.length - 1, cursor + 1))
+        if (key.return) handleExpand(phase.facts[factCursor] ?? phase.facts[0])
+      }
+      if (key.return && phase.name === 'answered' && phase.facts.length === 0) backToPicking()
+      if (key.return && phase.name === 'error') leaveError()
+      if (key.return && phase.name === 'done') resetToInput()
     },
     {isActive: Boolean(process.stdin.isTTY)},
   )
@@ -349,6 +436,18 @@ function AppContent({
         setHistory(addToHistory(url))
         setPhase({name: 'done', filepath})
       }
+      // Where both rungs meet. The platform's captions and whisper's own VTT
+      // parse to the same timed blocks, so there is one artifact rather than a
+      // marked one and a flat one (ADR 0004).
+      const writeTranscript = async (name: string, blocks: Block[]) => {
+        const filepath = path.join(OUT_DIR, name)
+        await fs.mkdir(OUT_DIR, {recursive: true})
+        await fs.writeFile(
+          filepath,
+          renderTranscript({title: info?.title, url, blocks, regions: detectSkippableRegions(blocks)}),
+        )
+        return filepath
+      }
       // the whisper fallback downloads audio to a temp dir — only the .txt lands in Downloads
       let tmpDir: string | undefined
       try {
@@ -359,23 +458,12 @@ function AppContent({
           const captions = await fetchCaptions({ytdlp: ytdlpRef.current, url}, controller.signal)
           const blocks = captions ? parseCaptions(captions.vtt) : []
           if (captions && blocks.length) {
-            const filepath = path.join(OUT_DIR, `${captions.name}.txt`)
-            await fs.mkdir(OUT_DIR, {recursive: true})
-            await fs.writeFile(
-              filepath,
-              renderTranscript({
-                title: info?.title,
-                url,
-                blocks,
-                regions: detectSkippableRegions(blocks),
-              }),
-            )
-            finish(filepath)
+            finish(await writeTranscript(`${captions.name}.txt`, blocks))
             return
           }
-          // No captions. Fall back to recognising the audio, which whisper
-          // returns untimed — so nothing is marked on this branch, rather than
-          // marked against times the transcript cannot show.
+          // No captions. Fall back to recognising the audio, which whisper also
+          // returns timed — so this branch produces the same artifact, marks and
+          // all, and differs only in how long it takes.
           setPhase({name: 'downloading', choice, processing: false})
         }
         // fail fast on a missing whisper install, before downloading anything
@@ -402,14 +490,13 @@ function AppContent({
           )
           if (controller.signal.aborted) return
           setPhase({name: 'transcribing', status: 'transcribing…', percent: 0})
-          const text = await transcribe(
+          const blocks = await transcribe(
             {mediaPath: filepath, ffmpeg: ffmpegLocation, whisper, model},
             percent => setPhase(prev => (prev.name === 'transcribing' ? {...prev, percent} : prev)),
             controller.signal,
           )
-          if (!text) throw new Error('No speech found in this video.')
-          filepath = path.join(OUT_DIR, `${path.parse(filepath).name}.txt`)
-          await fs.writeFile(filepath, renderUntimedTranscript({title: info?.title, url, text}))
+          if (!blocks.length) throw new Error('No speech found in this video.')
+          filepath = await writeTranscript(`${path.parse(filepath).name}.txt`, blocks)
         }
         finish(filepath)
       } catch (error) {
@@ -421,28 +508,101 @@ function AppContent({
     })()
   }
 
-  const handleAsk = (asked: string) => {
-    const trimmed = asked.trim()
-    if (!trimmed) return
+  // A later turn rides the conversation: the assistant already holds the
+  // transcript, so only the new prompt travels and nothing is refetched.
+  const runFollowUp = (shownAs: string, prompt: string): boolean => {
+    if (!conversationRef.current) return false
+    const {conversation, blocks} = conversationRef.current
     setAsking(false)
     const controller = new AbortController()
     abortRef.current = controller
-    setPhase({name: 'answering', status: 'looking for an assistant…'})
+    setPhase({name: 'answering', status: 'looking for an assistant…', facts: []})
+    void (async () => {
+      try {
+        const assistant = await findAssistant()
+        if (controller.signal.aborted) return
+        setPhase({name: 'answering', status: `asking ${assistant.name}…`, facts: []})
+        const turn = await ask(assistant, prompt, {
+          conversation,
+          signal: controller.signal,
+          onDelta: streamFactsInto(blocks, controller.signal),
+        })
+        if (controller.signal.aborted) return
+        landTurn(shownAs, turn, blocks)
+      } catch (error) {
+        if (controller.signal.aborted) return
+        setPhase({name: 'error', message: error instanceof Error ? error.message : String(error)})
+      }
+    })()
+    return true
+  }
+
+  // Streaming: each fact appears the moment its line completes and passes the
+  // same gate as ever (ADR 0005) — never a half-arrived line. The landed turn
+  // still reparses the whole text, so the preview can only ever be a prefix of
+  // the answer, not a different one.
+  // The signal guard matters: a delta already queued from a cancelled turn's
+  // child must not leak its facts into whatever the screen shows next.
+  const streamFactsInto = (blocks: Block[], signal: AbortSignal) => {
+    const push = factStream(blocks)
+    return (text: string) => {
+      if (signal.aborted) return
+      const fresh = push(text)
+      if (!fresh.length) return
+      setPhase(prev => (prev.name === 'answering' ? {...prev, facts: [...prev.facts, ...fresh]} : prev))
+    }
+  }
+
+  // Every turn lands the same way: keep the handle, re-gate the facts against
+  // the same blocks (ADR 0005), show the answer.
+  const landTurn = (shownAs: string, turn: Turn, blocks: Block[]) => {
+    conversationRef.current = {conversation: turn.conversation, blocks}
+    setFactCursor(0)
+    setPhase({name: 'answered', question: shownAs, facts: parseFacts(turn.text, blocks).facts})
+  }
+
+  const handleExpand = (fact: Fact) => {
+    runFollowUp(`expand [${stamp(fact.at)}] ${fact.text}`, buildExpansionPrompt(fact))
+  }
+
+  const handleAsk = (asked: string) => {
+    const trimmed = asked.trim()
+    if (!trimmed) return
+    // a second question about the same source continues its conversation
+    if (runFollowUp(trimmed, buildFollowUpPrompt(trimmed))) return
+    setAsking(false)
+    const controller = new AbortController()
+    abortRef.current = controller
+    setPhase({name: 'answering', status: 'looking for an assistant…', facts: []})
     void (async () => {
       try {
         // fail fast on a missing assistant, before fetching anything (ADR 0002)
         const assistant = await findAssistant()
         if (controller.signal.aborted) return
-        setPhase({name: 'answering', status: 'reading the captions…'})
+        setPhase({name: 'answering', status: 'reading the captions…', facts: []})
         const captions = await fetchCaptions({ytdlp: ytdlpRef.current, url}, controller.signal)
-        const blocks = captions ? parseCaptions(captions.vtt) : []
+        let blocks = captions ? parseCaptions(captions.vtt) : []
         if (!blocks.length) {
-          // Whisper would give words but no times, and a fact that cannot point
-          // back at the source is not one (ADR 0001). Better to say so.
-          throw new Error('This source has no captions, so there is nothing an answer could point at.')
+          // No captions. Whisper's own VTT is timed too, so a fact can still
+          // point back at the source (ADR 0001) — it just costs a download and
+          // a few minutes rather than a few seconds.
+          const choice = choices.find(item => item.kind === 'transcript')
+          if (!choice) throw new Error('This source has no audio to recognise.')
+          setPhase({name: 'transcribing', status: 'no captions — recognising the audio instead…'})
+          blocks = await recognise(
+            {ytdlp: ytdlpRef.current, url, choice},
+            {
+              onStatus: status => setPhase({name: 'transcribing', status}),
+              onPercent: percent =>
+                setPhase(prev => (prev.name === 'transcribing' ? {...prev, percent} : prev)),
+            },
+            controller.signal,
+          )
+          if (controller.signal.aborted) return
+          if (!blocks.length) throw new Error('No speech found in this video.')
         }
-        setPhase({name: 'answering', status: `asking ${assistant.name}…`})
-        const raw = await ask(
+        setPhase({name: 'answering', status: `asking ${assistant.name}…`, facts: []})
+        const turn = await ask(
           assistant,
           buildPrompt({
             title: info?.title,
@@ -451,11 +611,11 @@ function AppContent({
             regions: detectSkippableRegions(blocks),
             question: trimmed,
           }),
-          controller.signal,
+          {signal: controller.signal, onDelta: streamFactsInto(blocks, controller.signal)},
         )
         if (controller.signal.aborted) return
         setHistory(addToHistory(url))
-        setPhase({name: 'answered', question: trimmed, facts: parseFacts(raw, blocks).facts})
+        landTurn(trimmed, turn, blocks)
       } catch (error) {
         if (controller.signal.aborted) return
         setPhase({name: 'error', message: error instanceof Error ? error.message : String(error)})
@@ -470,6 +630,12 @@ function AppContent({
   if (phase.name === 'picking' && asking) {
     hints = [['↵', 'ask'], ['esc', 'back to saving'], ['^c', 'quit'], ['^t', `theme:${theme.mode}`]]
   }
+  if (phase.name === 'answered' && asking) {
+    hints = [['↵', 'ask'], ['esc', 'back to the facts'], ['^c', 'quit'], ['^t', `theme:${theme.mode}`]]
+  }
+  if (phase.name === 'answered' && !asking && phase.facts.length === 0) {
+    hints = [['↵', 'back'], ['^c', 'quit'], ['^t', `theme:${theme.mode}`]]
+  }
 
   // Anything a mouse user would expect to press is clickable. Targets are
   // found by their text in the rendered frame (see lib/click-map.ts), so
@@ -478,19 +644,31 @@ function AppContent({
     if (key === '^c') return () => exit()
     if (key === '^t') return cycleTheme
     if (key === 'esc') {
-      if (phase.name === 'answered') return backToPicking
-      return phase.name === 'probing' ||
-        phase.name === 'downloading' ||
-        phase.name === 'transcribing' ||
-        phase.name === 'answering'
+      if (phase.name === 'answered') {
+        if (asking) {
+          return () => {
+            setAsking(false)
+            setQuestion('')
+          }
+        }
+        return backToPicking
+      }
+      if (phase.name === 'answering') return cancelTurn
+      if (phase.name === 'error') return leaveError
+      return phase.name === 'probing' || phase.name === 'downloading' || phase.name === 'transcribing'
         ? cancelRun
         : resetToInput
     }
     if (key === '↵') {
       if (phase.name === 'input') return () => handleUrlSubmit(urlInput)
       if (phase.name === 'picking') return asking ? () => handleAsk(question) : () => handlePick({value: highlightRef.current})
-      if (phase.name === 'answered') return backToPicking
-      if (phase.name === 'error' || phase.name === 'done') return resetToInput
+      if (phase.name === 'answered') {
+        if (asking) return () => handleAsk(question)
+        if (phase.facts.length === 0) return backToPicking
+        return () => handleExpand(phase.facts[factCursor] ?? phase.facts[0])
+      }
+      if (phase.name === 'error') return leaveError
+      if (phase.name === 'done') return resetToInput
     }
     return undefined // ↑↓ / ↑ stay keyboard-only
   }
@@ -717,17 +895,34 @@ function AppContent({
       )}
 
       {phase.name === 'answering' && (
-        <Box flexDirection="column" alignItems="center">
-          <Text color={theme.gray} dimColor={theme.dimSecondary}>
-            {info?.title ? `${truncate(info.title, 42)}` : ''}
-          </Text>
-          <Gap />
-          <Text>
-            <Text color={theme.primary}>
-              <Spinner type="dots" />
+        <Box flexDirection="column" width={contentWidth}>
+          <Box flexDirection="column" alignItems="center">
+            <Text color={theme.gray} dimColor={theme.dimSecondary}>
+              {info?.title ? `${truncate(info.title, 42)}` : ''}
             </Text>
-            <Text color={theme.gray} dimColor={theme.dimSecondary}> {phase.status}</Text>
-          </Text>
+            <Gap />
+          </Box>
+          {/* facts land here as their lines complete — the same rows the
+              answered screen will show, minus the cursor */}
+          {phase.facts.map((fact, index) => (
+            <Box key={index} flexDirection="column" flexShrink={0}>
+              {wrapText(`[${stamp(fact.at)}] ${fact.text}`, contentWidth - 2).map((line, row) => (
+                <Text key={row} color={row === 0 ? theme.primary : theme.gray} dimColor={row > 0 && theme.dimSecondary}>
+                  {'  '}
+                  {line}
+                </Text>
+              ))}
+            </Box>
+          ))}
+          {phase.facts.length > 0 && <Gap />}
+          <Box alignItems="center" flexDirection="column">
+            <Text>
+              <Text color={theme.primary}>
+                <Spinner type="dots" />
+              </Text>
+              <Text color={theme.gray} dimColor={theme.dimSecondary}> {phase.status}</Text>
+            </Text>
+          </Box>
         </Box>
       )}
 
@@ -740,13 +935,38 @@ function AppContent({
           ) : (
             phase.facts.map((fact, index) => (
               <Box key={index} flexDirection="column" flexShrink={0}>
-                {wrapText(`[${stamp(fact.at)}] ${fact.text}`, contentWidth).map((line, row) => (
+                {wrapText(`[${stamp(fact.at)}] ${fact.text}`, contentWidth - 2).map((line, row) => (
                   <Text key={row} color={row === 0 ? theme.primary : theme.gray} dimColor={row > 0 && theme.dimSecondary}>
+                    {row === 0 ? (
+                      <Text color={theme.primary}>{index === factCursor && !asking ? '❯ ' : '  '}</Text>
+                    ) : (
+                      '  '
+                    )}
                     {line}
                   </Text>
                 ))}
               </Box>
             ))
+          )}
+          <Gap />
+          {/* the picker's grammar, reused: pick a fact to expand it, or just
+              start typing to ask the conversation something new */}
+          {asking ? (
+            <FramedInput title="ask a follow-up" width={boxWidth}>
+              <TextInput
+                value={question}
+                onChange={setQuestion}
+                onSubmit={handleAsk}
+                placeholder="what about…?"
+                width={boxWidth - 6}
+              />
+            </FramedInput>
+          ) : (
+            <Text color={theme.gray} dimColor={theme.dimSecondary}>
+              {phase.facts.length > 0
+                ? '↵ expands the chosen fact — or just start typing to ask'
+                : '…or just start typing to ask something else'}
+            </Text>
           )}
         </Box>
       )}

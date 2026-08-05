@@ -5,8 +5,10 @@ import os from 'node:os'
 import path from 'node:path'
 import {Readable} from 'node:stream'
 import {pipeline} from 'node:stream/promises'
+import {parseCaptions} from './captions.js'
 import {commandWorks} from './command.js'
 import {formatBytes} from './format.js'
+import type {Block} from './skippable.js'
 
 const MODEL_DIR = path.join(os.homedir(), '.yoinks', 'models')
 const MODEL_NAME = 'ggml-base.bin'
@@ -94,23 +96,36 @@ export async function ensureWhisperModel(onStatus: (message: string) => void, si
 
 /**
  * Transcribe a downloaded media file: ffmpeg → 16kHz mono WAV → whisper.cpp.
- * Returns the transcript text; intermediate files are cleaned up.
+ * Returns the timed blocks; intermediate files are cleaned up.
+ *
+ * `-ovtt` rather than the flat text this used to read off stdout. Whisper knows
+ * when it heard each segment and writes `00:00:00.000 --> ` cues for them, which
+ * is the shape the platform's captions already arrive in — so a source with no
+ * captions produces the same timed transcript as one with them, and the same
+ * marks. `CONTEXT.md` has defined a transcript as timed since the glossary was
+ * written; this is the branch that stopped it being true.
+ *
+ * Progress still comes off stderr, so `--print-progress` is unaffected by
+ * whisper also writing a file.
  */
 export async function transcribe(
   opts: {mediaPath: string; ffmpeg?: string; whisper: string; model: string},
   onProgress: (percent: number) => void,
   signal?: AbortSignal,
-): Promise<string> {
-  const wav = path.join(os.tmpdir(), `yoinks-audio-${process.pid}-${Date.now()}.wav`)
+): Promise<Block[]> {
+  // whisper appends its own extension to -of, so the wav and the vtt share a stem
+  const stem = path.join(os.tmpdir(), `yoinks-audio-${process.pid}-${Date.now()}`)
+  const wav = `${stem}.wav`
+  const vtt = `${stem}.vtt`
   try {
     await run(
       opts.ffmpeg ?? 'ffmpeg',
       ['-y', '-i', opts.mediaPath, '-vn', '-ar', '16000', '-ac', '1', '-c:a', 'pcm_s16le', wav],
       signal,
     )
-    const stdout = await run(
+    await run(
       opts.whisper,
-      ['-m', opts.model, '-f', wav, '--no-prints', '--no-timestamps', '--print-progress'],
+      ['-m', opts.model, '-f', wav, '--no-prints', '--print-progress', '-ovtt', '-of', stem],
       signal,
       line => {
         const percent = /progress\s*=\s*(\d+)%/.exec(line)?.[1]
@@ -118,17 +133,37 @@ export async function transcribe(
         if (percent) onProgress(Math.min(1, Number(percent) / 100))
       },
     )
-    return cleanTranscript(stdout)
+    return parseWhisperVtt(await fs.readFile(vtt, 'utf8'))
   } finally {
     void fs.rm(wav, {force: true})
+    void fs.rm(vtt, {force: true})
   }
 }
 
-/** Trim whisper output into readable lines, dropping noise-only markers like [Music]. */
-export function cleanTranscript(raw: string): string {
-  return raw
-    .split('\n')
-    .map(line => line.trim())
-    .filter(line => line && !/^[[(][^\])]*[\])]$/.test(line))
-    .join('\n')
+/**
+ * A cue whose whole text is `[Music]`, `(silence)`, `[BLANK_AUDIO]` — what
+ * whisper writes where there is no speech.
+ */
+const NOISE_ONLY = /^[[(][^\])]*[\])]$/
+
+/**
+ * Whisper's own VTT, turned into the timed blocks the detector reads.
+ *
+ * The same `parseCaptions` the platform's captions go through: whisper writes
+ * `00:00:00.000 --> ` cues, so once the noise markers are out there is nothing
+ * left for a second parser to do. That the one parser serves both rungs is the
+ * claim this path rests on — measured in
+ * `docs/validation/step-9-whisper-timing.md` and pinned in `captions.test.ts`.
+ *
+ * Noise cues are removed line by line rather than block by block: a cue left
+ * with no text is dropped by `readCues`, which is what keeps `[Music]` from
+ * becoming a word in the block around it.
+ */
+export function parseWhisperVtt(vtt: string): Block[] {
+  return parseCaptions(
+    vtt
+      .split('\n')
+      .filter(line => !NOISE_ONLY.test(line.trim()))
+      .join('\n'),
+  )
 }

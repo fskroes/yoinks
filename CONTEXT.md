@@ -16,9 +16,9 @@ _Avoid_: Format, download format
 **Transcript**:
 A timed record of what is said in the source media — taken from the platform's own captions
 where they exist, and otherwise recognised from the audio. Every line carries the time it was
-said; without that, an answer cannot be checked and no skippable region can be marked. Audio
-recognised locally is not yet timed, so a source with no captions gives up the words and none
-of the marks.
+said; without that, an answer cannot be checked and no skippable region can be marked. Both
+ways of getting one arrive timed, so a source with no captions gives up nothing but the time it
+takes to recognise it.
 _Avoid_: Caption file, subtitles
 
 **Block**:
@@ -40,5 +40,23 @@ _Avoid_: Finding, point, bullet, citation
 
 **Answer**:
 Facts drawn from a transcript, each pointing back to where in the source media it came from.
-Shown to the person and discarded — an answer is never saved, and so is never an artifact.
+Shown to the person and discarded — Yoinks never saves an answer, so it is never an artifact.
+An assistant the person runs may keep its own record of the conversation; that record is the
+assistant's, not Yoinks'.
 _Avoid_: Summary, insights, output
+
+**Expansion**:
+A follow-up on one fact the person selected: more facts from the neighbourhood of that fact's
+time and about its subject. An expansion is an answer — the same checkability rule and the
+same cap apply, and it replaces nothing the person cannot ask again.
+_Avoid_: Drill-down, detail view, more
+
+**Turn**:
+One exchange within a conversation: a question or an expansion, and the answer that came
+back. Every turn's answer is checked the same way, whatever turn it is.
+_Avoid_: Exchange, round, message
+
+**Conversation**:
+The sequence of answers and expansions about one source, remembered by the assistant. Yoinks
+holds only a handle to it, and drops the handle when the person leaves the source.
+_Avoid_: Session, chat, thread

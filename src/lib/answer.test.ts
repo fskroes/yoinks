@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import {buildPrompt, parseFacts} from './answer.js'
+import {buildExpansionPrompt, buildFollowUpPrompt, buildPrompt, factStream, parseFacts} from './answer.js'
 
 const BLOCKS = [
   {start: 0, text: 'the thing about the borrow checker is that it moves the error earlier'},
@@ -37,6 +37,25 @@ test('the prompt marks the skippable regions and says not to answer from them', 
   assert.match(prompt, /--- skippable · sponsor · 1:34–3:56/)
   assert.match(prompt, /skippable/)
   assert.match(prompt, /[Dd]o not answer from them/)
+})
+
+// A follow-up rides the conversation: the assistant already holds the
+// transcript and the rules, so neither prompt carries the transcript again.
+test('an expansion prompt names the fact and asks for its neighbourhood, without the transcript', () => {
+  const prompt = buildExpansionPrompt({at: 236, text: 'Opus draws 100% of the weekly limit'})
+
+  assert.match(prompt, /\[3:56] Opus draws 100% of the weekly limit/)
+  assert.match(prompt, /near that time and about its subject/)
+  assert.match(prompt, /same rules/i)
+  assert.doesNotMatch(prompt, /Transcript:/)
+})
+
+test('a follow-up question prompt carries the question and nothing else new', () => {
+  const prompt = buildFollowUpPrompt('what about the battery?')
+
+  assert.match(prompt, /Question: what about the battery\?/)
+  assert.match(prompt, /same rules/i)
+  assert.doesNotMatch(prompt, /Transcript:/)
 })
 
 test('keeps a fact whose timestamp is a block the source really has', () => {
@@ -98,4 +117,19 @@ test('a fact is trimmed of the space after its stamp', () => {
   const {facts} = parseFacts('[0:00]     padded out', BLOCKS)
 
   assert.deepEqual(facts, [{at: 0, text: 'padded out'}])
+})
+
+// Streaming: a fact renders only when its line is complete and has passed the
+// same gate as any other fact (ADR 0005) — a half-arrived line shows nothing.
+test('factStream emits a fact only when its line completes and checks out', () => {
+  const push = factStream(BLOCKS)
+
+  assert.deepEqual(push('[3:56] Opus draws 100%'), [])
+  assert.deepEqual(push(' of the weekly limit\n[9:'), [
+    {at: 236, text: 'Opus draws 100% of the weekly limit'},
+  ])
+  // an uncheckable fact and a bare line die at the same gate as ever
+  assert.deepEqual(push('99] invented\nno stamp\n[0:00] the borrow checker moves the error earlier\n'), [
+    {at: 0, text: 'the borrow checker moves the error earlier'},
+  ])
 })
