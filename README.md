@@ -74,9 +74,10 @@ click the theme control in the footer to cycle through `auto`, `light`, and
 - On the pick screen you can **just start typing to ask about the source**
   instead of saving it. Yoinks reads the captions and hands them, with your
   question, to an assistant already on your PATH (Claude Code or Codex) — it
-  never calls a model itself and holds no API key. The answer comes back as
-  facts, each carrying the timestamp it came from, and a fact whose timestamp
-  doesn't match the source is dropped rather than shown. Answers are displayed
+  never calls a model itself and holds no API key. The answer is a short gist
+  backed by timestamped receipts — a receipt whose timestamp doesn't match the
+  source is dropped, and a gist with no surviving receipt behind it is not
+  shown at all. Answers are displayed
   and thrown away — yoinks saves nothing. Follow-up questions continue a
   conversation your assistant remembers, the same way any chat with it does.
 - The UI is [Ink](https://github.com/vadimdemedes/ink) — React for the

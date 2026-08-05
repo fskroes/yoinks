@@ -2,8 +2,14 @@
 
 Working thesis about what a person wants after Yoinks produces a transcript. Provisional — see [Evidence](#evidence).
 
+> **2026-08-05.** [ADR 0007](adr/0007-an-answer-is-a-backed-gist.md) changed the answer's
+> shape after real use: an answer is now a short prose gist backed by folded, timestamped
+> **receipts**, and "fact" left the vocabulary. The evidence and quotes below predate that
+> and keep the words they were recorded with; read "fact" as the pre-0007 term for a
+> receipt, and "an answer is at most five facts" as the superseded shape.
+
 Uses the vocabulary in `CONTEXT.md`: **source URL**, **artifact**, **transcript**, **block**,
-**skippable region**, **fact**, **answer**. Constrained by
+**skippable region**, **receipt**, **answer**. Constrained by
 [ADR 0001](adr/0001-facts-never-conclusions.md),
 [ADR 0002](adr/0002-drive-an-assistant-on-path.md),
 [ADR 0003](adr/0003-skippable-regions-not-a-map.md),

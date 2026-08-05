@@ -109,8 +109,8 @@ test('marks each region separately when a source has several', () => {
 // A transcript records when a line was said, never when it stopped, so the end
 // of the region covering the final block is the detector's estimate from the
 // source's own median spacing — not a time the source recorded. Printing it in
-// the same syntax as the exact ends would dress an estimate as a fact, which is
-// the thing ADR 0001 exists to stop.
+// the same syntax as the exact ends would dress an estimate as a recorded
+// time, which is the thing ADR 0001 exists to stop.
 test('says "end" rather than inventing a second the source never recorded', () => {
   const text = renderTranscript({
     url: 'u',

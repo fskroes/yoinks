@@ -5,8 +5,8 @@
  * Arithmetic and phrase matching over a timed transcript. No I/O, no terminal,
  * no model, no API key.
  *
- * Bound by ADR 0001: a region is a fact, so it carries the line that gave it
- * away, verbatim, for a person to check against the source. It never scores,
+ * Bound by ADR 0001: a region is checkable, so it carries the line that gave
+ * it away, verbatim, for a person to check against the source. It never scores,
  * ranks, or recommends, and it never says where the subject changes — that is
  * an inference the transcript cannot check (ADR 0003).
  */
