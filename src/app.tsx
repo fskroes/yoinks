@@ -209,6 +209,7 @@ const HINTS: Record<Phase['name'], Array<[string, string]>> = {
 }
 
 type AppProps = {
+  version: string
   initialUrl?: string
   clipboardUrl?: string
   initialThemeMode?: ThemeMode
@@ -229,11 +230,13 @@ export function App({initialThemeMode = 'auto', ...props}: AppProps) {
 }
 
 function AppContent({
+  version,
   initialUrl,
   clipboardUrl,
   onOutcome,
   cycleTheme,
 }: {
+  version: string
   initialUrl?: string
   clipboardUrl?: string
   onOutcome: (outcome: Outcome) => void
@@ -718,7 +721,7 @@ function AppContent({
       <Logo />
       <Gap />
       <Text color={theme.primary}>{TAGLINE}</Text>
-      <Text color={theme.gray} dimColor={theme.dimSecondary}>youtube · x · instagram · threads · tiktok · +1800 more</Text>
+      <Text color={theme.gray} dimColor={theme.dimSecondary}>youtube · x · instagram · threads · tiktok · +1800 more · v{version}</Text>
       <Gap />
 
       {phase.name === 'input' && (

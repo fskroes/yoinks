@@ -82,6 +82,7 @@ if (isTTY) {
 let outcome: Outcome = {}
 const {waitUntilExit} = render(
   <App
+    version={VERSION}
     initialUrl={initialUrl}
     clipboardUrl={clipboardUrl}
     initialThemeMode={initialThemeMode}
