@@ -7,7 +7,7 @@
  * transcript is timed and an answer that cannot be checked against the source
  * is not worth much. Where the source interrupts itself, the span is marked
  * with the verbatim phrase that gave it away, per ADR 0001 — the artifact
- * states a fact and hands the reader what they need to disagree with it. It
+ * states what was said and hands the reader what they need to disagree with it. It
  * never says the span is worthless, and it never says where a subject changes
  * (ADR 0003).
  */
@@ -45,8 +45,9 @@ export function renderTranscript(opts: {
   // A region's end is the next block's start, which is a time the source really
   // recorded — except for the region that runs past the final block, where the
   // detector can only estimate it from the source's own median spacing. An
-  // estimate printed in the same syntax as a fact is exactly the thing ADR 0001
-  // forbids, so that one says "end" rather than inventing a second.
+  // estimate printed in the same syntax as a recorded time is exactly the
+  // thing ADR 0001 forbids, so that one says "end" rather than inventing a
+  // second.
   const lastStart = opts.blocks.at(-1)?.start ?? 0
 
   const body = opts.blocks.map(block => {

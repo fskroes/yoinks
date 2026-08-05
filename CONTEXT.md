@@ -32,23 +32,25 @@ A span of a source that is not the source: a sponsor read, a subscribe interrupt
 outro. Marked in time, and always traceable to the line that gave it away.
 _Avoid_: Map, chapter, segment, ad break, filler
 
-**Fact**:
-One thing the source says, in the source's own words where possible, carrying the time it was
-said. The time is not decoration: it is what makes the claim checkable, so a fact whose time
-does not resolve to a block this source has is not shown at all.
-_Avoid_: Finding, point, bullet, citation
+**Receipt**:
+One timestamped line backing an answer, in the source's own words where possible, carrying
+the time it was said. The time is not decoration: it is what makes the line checkable, so a
+receipt whose time does not resolve to a block this source has is not shown at all. Folded
+away by default; revealed on request.
+_Avoid_: Fact, finding, point, bullet, citation
 
 **Answer**:
-Facts drawn from a transcript, each pointing back to where in the source media it came from.
-Shown to the person and discarded — Yoinks never saves an answer, so it is never an artifact.
-An assistant the person runs may keep its own record of the conversation; that record is the
+A gist of at most three sentences answering a question from the transcript, backed by at most
+five receipts. A gist with no surviving receipt is not an answer and is not shown. Shown to
+the person and discarded — Yoinks never saves an answer, so it is never an artifact. An
+assistant the person runs may keep its own record of the conversation; that record is the
 assistant's, not Yoinks'.
 _Avoid_: Summary, insights, output
 
 **Expansion**:
-A follow-up on one fact the person selected: more facts from the neighbourhood of that fact's
-time and about its subject. An expansion is an answer — the same checkability rule and the
-same cap apply, and it replaces nothing the person cannot ask again.
+A follow-up on one receipt the person selected: what the source says around that receipt's
+time and about its subject. An expansion is an answer — the same shape, the same gate, and
+the same caps apply, and it replaces nothing the person cannot ask again.
 _Avoid_: Drill-down, detail view, more
 
 **Turn**:

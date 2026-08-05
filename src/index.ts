@@ -3,8 +3,8 @@
  *
  * `src/cli.tsx` is one caller of this. A script that walks a channel and keeps
  * what it finds is another, and it wants the same guarantees — timed blocks,
- * marked skippable regions, and a fact whose citation is checked rather than
- * trusted (ADR 0005).
+ * marked skippable regions, and an answer whose receipts are checked rather
+ * than trusted (ADR 0005, ADR 0007).
  *
  * What is deliberately not here: the Ink components, the click map, the theme,
  * clipboard and history. Those are how a person drives the pipeline, not the
@@ -43,7 +43,7 @@ export {
 // VTT — from either rung — into the timed blocks everything downstream reads.
 export {parseCaptions} from './lib/captions.js'
 
-// Facts about a source's shape: which spans are not the source.
+// A source's shape: which spans are not the source.
 export {
   detectSkippableRegions,
   type Block,
@@ -54,9 +54,10 @@ export {
 // The artifact.
 export {renderTranscript, stamp} from './lib/transcript.js'
 
-// Asking about a source. `parseFacts` is the invariant, not a formatter: it
-// drops any fact whose timestamp is not a block this source has.
-export {buildExpansionPrompt, buildFollowUpPrompt, buildPrompt, factStream, parseFacts, type Fact, type ParsedAnswer} from './lib/answer.js'
+// Asking about a source. `parseAnswer` is the invariant, not a formatter: it
+// drops any receipt whose timestamp is not a block this source has, and an
+// answer with no surviving receipt at all (ADR 0007).
+export {buildExpansionPrompt, buildFollowUpPrompt, buildPrompt, parseAnswer, type Answer, type Receipt} from './lib/answer.js'
 export {findAssistant, ask, type Assistant, type Turn} from './lib/assistant.js'
 
 // Which platform a url belongs to, and whether it is one at all.

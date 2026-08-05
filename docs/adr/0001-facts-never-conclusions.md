@@ -24,6 +24,11 @@ The constraint is load-bearing for two later decisions and is easy to violate by
   where the subject changes with nothing in the transcript to check it against — this
   constraint rules it out, and it took two failed measurements to notice. The no-question path
   returns marked **skippable regions**, which are facts. The constraint below is unchanged.*
+  *Amended by [ADR 0007](0007-an-answer-is-a-backed-gist.md), 2026-08-05: the presentation
+  consequence below is superseded. An answer now leads with a short prose gist, backed by
+  gated, timestamped receipts — real use showed bare fact lines could not be placed in the
+  source they came from. The core constraint — no verdicts, no rankings, no worth-watching —
+  is unchanged; a gist with no surviving receipt is not shown at all.*
 - "Prefer verbatim over paraphrase" exists for the same reason. A summary flattens a weak
   thinker and a strong one into the same competent prose, which is a judgment about the
   source smuggled in as a writing style.

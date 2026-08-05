@@ -33,7 +33,7 @@ import {parseCaptions} from './lib/captions.js'
 import {detectSkippableRegions, type Block} from './lib/skippable.js'
 import {renderTranscript, stamp} from './lib/transcript.js'
 import {ensureWhisperModel, findWhisper, transcribe} from './lib/transcribe.js'
-import {buildExpansionPrompt, buildFollowUpPrompt, buildPrompt, factStream, parseFacts, type Fact} from './lib/answer.js'
+import {buildExpansionPrompt, buildFollowUpPrompt, buildPrompt, parseAnswer, type Answer, type Receipt} from './lib/answer.js'
 import {ask, findAssistant, type Turn} from './lib/assistant.js'
 
 const OUT_DIR = path.join(os.homedir(), 'Downloads')
@@ -163,8 +163,8 @@ type Phase =
       refreshing?: boolean
     }
   | {name: 'transcribing'; status: string; percent?: number}
-  | {name: 'answering'; status: string; facts: Fact[]}
-  | {name: 'answered'; question: string; facts: Fact[]}
+  | {name: 'answering'; status: string}
+  | {name: 'answered'; question: string; answer: Answer | undefined}
   | {name: 'done'; filepath: string}
   | {name: 'error'; message: string}
 
@@ -196,8 +196,7 @@ const HINTS: Record<Phase['name'], Array<[string, string]>> = {
     ['^c', 'quit'],
   ],
   answered: [
-    ['↑↓', 'choose'],
-    ['↵', 'expand'],
+    ['↵', 'sources'],
     ['esc', 'back'],
     ['^c', 'quit'],
   ],
@@ -254,11 +253,12 @@ function AppContent({
   // the ask input on the picking screen: closed until the person starts typing
   const [asking, setAsking] = useState(false)
   const [question, setQuestion] = useState('')
-  // the fact under the cursor on the answered screen, for expanding it
-  const [factCursor, setFactCursor] = useState(0)
+  // receipts fold behind ↵ (ADR 0007); once revealed, one sits under the cursor
+  const [revealed, setRevealed] = useState(false)
+  const [receiptCursor, setReceiptCursor] = useState(0)
   // the conversation about this source (CONTEXT.md): the assistant remembers
   // it, Yoinks holds only this handle and drops it on leaving the source
-  // (ADR 0006). The blocks ride along so every turn's facts stay checkable
+  // (ADR 0006). The blocks ride along so every turn's receipts stay checkable
   // without refetching the transcript.
   const conversationRef = useRef<{conversation: string; blocks: Block[]} | undefined>(undefined)
   const ytdlpRef = useRef('')
@@ -360,11 +360,11 @@ function AppContent({
         }
         return
       }
-      // a number picks a fact to expand, the same way it picks a format
-      if (phase.name === 'answered' && /^[1-9]$/.test(input) && !key.ctrl && !key.meta) {
+      // a number picks a revealed receipt, the same way it picks a format
+      if (phase.name === 'answered' && revealed && /^[1-9]$/.test(input) && !key.ctrl && !key.meta) {
         const index = Number(input) - 1
-        if (index < phase.facts.length) {
-          setFactCursor(index)
+        if (index < (phase.answer?.receipts.length ?? 0)) {
+          setReceiptCursor(index)
           return
         }
       }
@@ -391,13 +391,23 @@ function AppContent({
       if (key.escape && (phase.name === 'probing' || phase.name === 'downloading' || phase.name === 'transcribing'))
         cancelRun()
       if (key.escape && phase.name === 'answering') cancelTurn()
-      if (key.escape && phase.name === 'answered') backToPicking()
-      if (phase.name === 'answered' && phase.facts.length > 0) {
-        if (key.upArrow) setFactCursor(cursor => Math.max(0, cursor - 1))
-        if (key.downArrow) setFactCursor(cursor => Math.min(phase.facts.length - 1, cursor + 1))
-        if (key.return) handleExpand(phase.facts[factCursor] ?? phase.facts[0])
+      // esc means "quieter" before it means "leave": fold first, then back
+      if (key.escape && phase.name === 'answered') {
+        if (revealed) setRevealed(false)
+        else backToPicking()
       }
-      if (key.return && phase.name === 'answered' && phase.facts.length === 0) backToPicking()
+      if (phase.name === 'answered' && phase.answer) {
+        const receipts = phase.answer.receipts
+        if (revealed && key.upArrow) setReceiptCursor(cursor => Math.max(0, cursor - 1))
+        if (revealed && key.downArrow) setReceiptCursor(cursor => Math.min(receipts.length - 1, cursor + 1))
+        if (key.return && !revealed) {
+          setRevealed(true)
+          setReceiptCursor(0)
+        } else if (key.return) {
+          handleExpand(receipts[receiptCursor] ?? receipts[0])
+        }
+      }
+      if (key.return && phase.name === 'answered' && !phase.answer) backToPicking()
       if (key.return && phase.name === 'error') leaveError()
       if (key.return && phase.name === 'done') resetToInput()
     },
@@ -519,17 +529,13 @@ function AppContent({
     setAsking(false)
     const controller = new AbortController()
     abortRef.current = controller
-    setPhase({name: 'answering', status: 'looking for an assistant…', facts: []})
+    setPhase({name: 'answering', status: 'looking for an assistant…'})
     void (async () => {
       try {
         const assistant = await findAssistant()
         if (controller.signal.aborted) return
-        setPhase({name: 'answering', status: `asking ${assistant.name}…`, facts: []})
-        const turn = await ask(assistant, prompt, {
-          conversation,
-          signal: controller.signal,
-          onDelta: streamFactsInto(blocks, controller.signal),
-        })
+        setPhase({name: 'answering', status: `asking ${assistant.name}…`})
+        const turn = await ask(assistant, prompt, {conversation, signal: controller.signal})
         if (controller.signal.aborted) return
         landTurn(shownAs, turn, blocks)
       } catch (error) {
@@ -540,32 +546,18 @@ function AppContent({
     return true
   }
 
-  // Streaming: each fact appears the moment its line completes and passes the
-  // same gate as ever (ADR 0005) — never a half-arrived line. The landed turn
-  // still reparses the whole text, so the preview can only ever be a prefix of
-  // the answer, not a different one.
-  // The signal guard matters: a delta already queued from a cancelled turn's
-  // child must not leak its facts into whatever the screen shows next.
-  const streamFactsInto = (blocks: Block[], signal: AbortSignal) => {
-    const push = factStream(blocks)
-    return (text: string) => {
-      if (signal.aborted) return
-      const fresh = push(text)
-      if (!fresh.length) return
-      setPhase(prev => (prev.name === 'answering' ? {...prev, facts: [...prev.facts, ...fresh]} : prev))
-    }
-  }
-
-  // Every turn lands the same way: keep the handle, re-gate the facts against
-  // the same blocks (ADR 0005), show the answer.
+  // Every turn lands the same way: keep the handle, gate the receipts against
+  // the same blocks (ADR 0005), show the answer whole — or nothing, when no
+  // receipt survives to back the prose (ADR 0007).
   const landTurn = (shownAs: string, turn: Turn, blocks: Block[]) => {
     conversationRef.current = {conversation: turn.conversation, blocks}
-    setFactCursor(0)
-    setPhase({name: 'answered', question: shownAs, facts: parseFacts(turn.text, blocks).facts})
+    setRevealed(false)
+    setReceiptCursor(0)
+    setPhase({name: 'answered', question: shownAs, answer: parseAnswer(turn.text, blocks)})
   }
 
-  const handleExpand = (fact: Fact) => {
-    runFollowUp(`expand [${stamp(fact.at)}] ${fact.text}`, buildExpansionPrompt(fact))
+  const handleExpand = (receipt: Receipt) => {
+    runFollowUp(`more about [${stamp(receipt.at)}] ${receipt.text}`, buildExpansionPrompt(receipt))
   }
 
   const handleAsk = (asked: string) => {
@@ -576,18 +568,18 @@ function AppContent({
     setAsking(false)
     const controller = new AbortController()
     abortRef.current = controller
-    setPhase({name: 'answering', status: 'looking for an assistant…', facts: []})
+    setPhase({name: 'answering', status: 'looking for an assistant…'})
     void (async () => {
       try {
         // fail fast on a missing assistant, before fetching anything (ADR 0002)
         const assistant = await findAssistant()
         if (controller.signal.aborted) return
-        setPhase({name: 'answering', status: 'reading the captions…', facts: []})
+        setPhase({name: 'answering', status: 'reading the captions…'})
         const captions = await fetchCaptions({ytdlp: ytdlpRef.current, url}, controller.signal)
         let blocks = captions ? parseCaptions(captions.vtt) : []
         if (!blocks.length) {
-          // No captions. Whisper's own VTT is timed too, so a fact can still
-          // point back at the source (ADR 0001) — it just costs a download and
+          // No captions. Whisper's own VTT is timed too, so a receipt can still
+          // point back at the source (ADR 0007) — it just costs a download and
           // a few minutes rather than a few seconds.
           const choice = choices.find(item => item.kind === 'transcript')
           if (!choice) throw new Error('This source has no audio to recognise.')
@@ -604,7 +596,7 @@ function AppContent({
           if (controller.signal.aborted) return
           if (!blocks.length) throw new Error('No speech found in this video.')
         }
-        setPhase({name: 'answering', status: `asking ${assistant.name}…`, facts: []})
+        setPhase({name: 'answering', status: `asking ${assistant.name}…`})
         const turn = await ask(
           assistant,
           buildPrompt({
@@ -614,7 +606,7 @@ function AppContent({
             regions: detectSkippableRegions(blocks),
             question: trimmed,
           }),
-          {signal: controller.signal, onDelta: streamFactsInto(blocks, controller.signal)},
+          {signal: controller.signal},
         )
         if (controller.signal.aborted) return
         setHistory(addToHistory(url))
@@ -634,9 +626,12 @@ function AppContent({
     hints = [['↵', 'ask'], ['esc', 'back to saving'], ['^c', 'quit'], ['^t', `theme:${theme.mode}`]]
   }
   if (phase.name === 'answered' && asking) {
-    hints = [['↵', 'ask'], ['esc', 'back to the facts'], ['^c', 'quit'], ['^t', `theme:${theme.mode}`]]
+    hints = [['↵', 'ask'], ['esc', 'back to the answer'], ['^c', 'quit'], ['^t', `theme:${theme.mode}`]]
   }
-  if (phase.name === 'answered' && !asking && phase.facts.length === 0) {
+  if (phase.name === 'answered' && !asking && revealed) {
+    hints = [['↑↓', 'choose'], ['↵', 'expand'], ['esc', 'fold'], ['^c', 'quit'], ['^t', `theme:${theme.mode}`]]
+  }
+  if (phase.name === 'answered' && !asking && !phase.answer) {
     hints = [['↵', 'back'], ['^c', 'quit'], ['^t', `theme:${theme.mode}`]]
   }
 
@@ -654,7 +649,7 @@ function AppContent({
             setQuestion('')
           }
         }
-        return backToPicking
+        return revealed ? () => setRevealed(false) : backToPicking
       }
       if (phase.name === 'answering') return cancelTurn
       if (phase.name === 'error') return leaveError
@@ -667,8 +662,15 @@ function AppContent({
       if (phase.name === 'picking') return asking ? () => handleAsk(question) : () => handlePick({value: highlightRef.current})
       if (phase.name === 'answered') {
         if (asking) return () => handleAsk(question)
-        if (phase.facts.length === 0) return backToPicking
-        return () => handleExpand(phase.facts[factCursor] ?? phase.facts[0])
+        if (!phase.answer) return backToPicking
+        const receipts = phase.answer.receipts
+        if (!revealed) {
+          return () => {
+            setRevealed(true)
+            setReceiptCursor(0)
+          }
+        }
+        return () => handleExpand(receipts[receiptCursor] ?? receipts[0])
       }
       if (phase.name === 'error') return leaveError
       if (phase.name === 'done') return resetToInput
@@ -905,19 +907,9 @@ function AppContent({
             </Text>
             <Gap />
           </Box>
-          {/* facts land here as their lines complete — the same rows the
-              answered screen will show, minus the cursor */}
-          {phase.facts.map((fact, index) => (
-            <Box key={index} flexDirection="column" flexShrink={0}>
-              {wrapText(`[${stamp(fact.at)}] ${fact.text}`, contentWidth - 2).map((line, row) => (
-                <Text key={row} color={row === 0 ? theme.primary : theme.gray} dimColor={row > 0 && theme.dimSecondary}>
-                  {'  '}
-                  {line}
-                </Text>
-              ))}
-            </Box>
-          ))}
-          {phase.facts.length > 0 && <Gap />}
+          {/* the answer renders whole when it lands (ADR 0007): the gist
+              arrives first in the stream but may not be shown unbacked, so
+              there is nothing honest to show before the receipts land */}
           <Box alignItems="center" flexDirection="column">
             <Text>
               <Text color={theme.primary}>
@@ -933,27 +925,52 @@ function AppContent({
         <Box flexDirection="column" width={contentWidth}>
           <Text color={theme.gray} dimColor={theme.dimSecondary}>? {truncate(phase.question, contentWidth - 2)}</Text>
           <Gap />
-          {phase.facts.length === 0 ? (
+          {!phase.answer ? (
             <Text color={theme.primary}>The source doesn’t answer that.</Text>
           ) : (
-            phase.facts.map((fact, index) => (
-              <Box key={index} flexDirection="column" flexShrink={0}>
-                {wrapText(`[${stamp(fact.at)}] ${fact.text}`, contentWidth - 2).map((line, row) => (
-                  <Text key={row} color={row === 0 ? theme.primary : theme.gray} dimColor={row > 0 && theme.dimSecondary}>
-                    {row === 0 ? (
-                      <Text color={theme.primary}>{index === factCursor && !asking ? '❯ ' : '  '}</Text>
-                    ) : (
-                      '  '
-                    )}
-                    {line}
-                  </Text>
-                ))}
-              </Box>
-            ))
+            <>
+              {wrapText(phase.answer.gist, contentWidth - 2).map((line, row) => (
+                <Text key={row} color={theme.primary}>
+                  {'  '}
+                  {line}
+                </Text>
+              ))}
+              <Gap />
+              {revealed ? (
+                phase.answer.receipts.map((receipt, index) => (
+                  <Box key={index} flexDirection="column" flexShrink={0}>
+                    {wrapText(`[${stamp(receipt.at)}] ${receipt.text}`, contentWidth - 4).map((line, row) => (
+                      <Text
+                        key={row}
+                        color={row === 0 ? theme.primary : theme.gray}
+                        dimColor={row > 0 && theme.dimSecondary}
+                      >
+                        {row === 0 ? (
+                          <Text color={theme.primary}>
+                            {'  '}
+                            {index === receiptCursor && !asking ? '❯ ' : '  '}
+                          </Text>
+                        ) : (
+                          '    '
+                        )}
+                        {line}
+                      </Text>
+                    ))}
+                  </Box>
+                ))
+              ) : (
+                <Text color={theme.gray} dimColor={theme.dimSecondary}>
+                  {'    '}
+                  {phase.answer.receipts.length === 1
+                    ? '1 place in the source backs this — ↵ shows it'
+                    : `${phase.answer.receipts.length} places in the source back this — ↵ shows them`}
+                </Text>
+              )}
+            </>
           )}
           <Gap />
-          {/* the picker's grammar, reused: pick a fact to expand it, or just
-              start typing to ask the conversation something new */}
+          {/* the picker's grammar, reused: reveal the receipts, pick one to
+              expand — or just start typing to ask something new */}
           {asking ? (
             <FramedInput title="ask a follow-up" width={boxWidth}>
               <TextInput
@@ -966,9 +983,11 @@ function AppContent({
             </FramedInput>
           ) : (
             <Text color={theme.gray} dimColor={theme.dimSecondary}>
-              {phase.facts.length > 0
-                ? '↵ expands the chosen fact — or just start typing to ask'
-                : '…or just start typing to ask something else'}
+              {!phase.answer
+                ? '…or just start typing to ask something else'
+                : revealed
+                  ? '↵ expands the chosen line · esc folds — or just start typing to ask'
+                  : '↵ shows sources — or just start typing to ask'}
             </Text>
           )}
         </Box>

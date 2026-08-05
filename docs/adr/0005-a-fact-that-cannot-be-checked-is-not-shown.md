@@ -5,6 +5,10 @@ has. A line that carries no timestamp, or one pointing at a time this source nev
 is dropped in `parseFacts` and never reaches a person. Yoinks does not ask the assistant
 nicely and hope; it checks, and discards what fails.
 
+*Amended by [ADR 0007](0007-an-answer-is-a-backed-gist.md), 2026-08-05: the gated line is now
+called a **receipt** and the gate lives in `parseAnswer`, which additionally drops a whole
+answer when no receipt survives. The check itself is unchanged.*
+
 ## Why
 
 [ADR 0001](0001-facts-never-conclusions.md) says Yoinks states facts and hands the person what
